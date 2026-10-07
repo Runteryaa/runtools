@@ -221,6 +221,67 @@
         }
         .btn-dl-chunk:hover { background-color: #1d4ed8; }
 
+        .btn-play-chunk {
+            background-color: #4b5563;
+            color: white;
+            padding: 8px 12px;
+            font-size: 0.85rem;
+            border-radius: 5px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .btn-play-chunk:hover { background-color: #374151; }
+
+        /* chunk action buttons group */
+        .chunk-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+
+        /* ── Video Player Overlay ─────────────────────────────────────── */
+        #player-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0,0,0,0.92);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+        #player-overlay.active { display: flex; }
+
+        #player-close {
+            position: absolute;
+            top: 18px;
+            right: 28px;
+            color: #fff;
+            font-size: 38px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+            z-index: 10000;
+            user-select: none;
+        }
+        #player-close:hover { color: #ef4444; }
+
+        #player-title {
+            position: absolute;
+            top: 22px;
+            left: 28px;
+            color: #9ca3af;
+            font-size: 0.85rem;
+            max-width: calc(100% - 120px);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #player-video {
+            width: 92vw;
+            max-height: 85vh;
+            border-radius: 8px;
+            outline: none;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+        }
+
         /* Loader spinner */
         .loader {
             display: none;
@@ -308,6 +369,13 @@
 </div>
 
 <div id="toast"></div>
+
+<!-- Video player popup -->
+<div id="player-overlay" onclick="closePlayer(event)">
+    <span id="player-close" onclick="closePlayer()">&times;</span>
+    <div id="player-title"></div>
+    <video id="player-video" controls autoplay></video>
+</div>
 
 <!-- ffmpeg.wasm 0.11.x — Worker is created inline as blob URL, no cross-origin issues -->
 <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.0/dist/ffmpeg.min.js"></script>
@@ -565,13 +633,25 @@ function renderChunks(chunkMB) {
         info.appendChild(nameEl);
         info.appendChild(sizeEl);
 
-        const btn = document.createElement('button');
-        btn.className   = 'btn-dl-chunk';
-        btn.textContent = '⬇ Download';
-        btn.onclick     = () => downloadBlob(blob, name);
+        // Action buttons group
+        const actions = document.createElement('div');
+        actions.className = 'chunk-actions';
+
+        const playBtn = document.createElement('button');
+        playBtn.className   = 'btn-play-chunk';
+        playBtn.textContent = '▶ Play';
+        playBtn.onclick     = () => openPlayer(blob, name);
+
+        const dlBtn = document.createElement('button');
+        dlBtn.className   = 'btn-dl-chunk';
+        dlBtn.textContent = '⬇ Download';
+        dlBtn.onclick     = () => downloadBlob(blob, name);
+
+        actions.appendChild(playBtn);
+        actions.appendChild(dlBtn);
 
         item.appendChild(info);
-        item.appendChild(btn);
+        item.appendChild(actions);
         chunksList.appendChild(item);
     });
 
@@ -595,6 +675,45 @@ async function downloadAll() {
         if (i < chunkBlobs.length - 1) await sleep(500);
     }
 }
+
+// ─── Video player popup ───────────────────────────────────────────────────────
+let playerObjectURL = null;
+
+function openPlayer(blob, name) {
+    // Revoke any previous object URL to avoid memory leaks
+    if (playerObjectURL) URL.revokeObjectURL(playerObjectURL);
+
+    playerObjectURL = URL.createObjectURL(blob);
+
+    const video = document.getElementById('player-video');
+    video.src   = playerObjectURL;
+    video.load();
+    video.play().catch(() => {}); // autoplay may be blocked — ignore
+
+    document.getElementById('player-title').textContent = name;
+    document.getElementById('player-overlay').classList.add('active');
+}
+
+function closePlayer(e) {
+    // If clicking the backdrop (not the video itself), close
+    if (e && e.target === document.getElementById('player-video')) return;
+
+    const overlay = document.getElementById('player-overlay');
+    const video   = document.getElementById('player-video');
+
+    video.pause();
+    video.src = '';
+    overlay.classList.remove('active');
+
+    if (playerObjectURL) {
+        URL.revokeObjectURL(playerObjectURL);
+        playerObjectURL = null;
+    }
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closePlayer();
+});
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function getVideoDuration(file) {
