@@ -5,11 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Bölücü</title>
     
-    <!-- ESKİ, STABİL VE İŞÇİ (WORKER) KULLANMAYAN EFSANE SÜRÜM -->
-    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.9.4/dist/ffmpeg.min.js"></script>
+    <!-- FFmpeg v0.12 UMD (Sıfır SharedArrayBuffer Gereksinimi) -->
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
     
     <style>
-        /* Modern Dark Theme Styling - RunClipboard Arayüzü */
         body {
             font-family: 'Segoe UI', sans-serif;
             background-color: #1a1a1a;
@@ -51,13 +50,6 @@
             background-color: rgba(255,255,255,0.05);
         }
 
-        .placeholder.drag-over {
-            border-color: #2563eb;
-            background-color: rgba(37, 99, 235, 0.1);
-            color: #fff;
-            transform: scale(1.02);
-        }
-
         #preview-container {
             display: none;
             width: 80%; 
@@ -69,26 +61,10 @@
             box-shadow: 0 10px 25px rgba(0,0,0,0.5);
         }
 
-        #file-name {
-            margin: 0 0 8px 0;
-            font-size: 1.2rem;
-            word-break: break-all;
-            color: #fff;
-        }
+        #file-name { margin: 0 0 8px 0; font-size: 1.2rem; word-break: break-all; color: #fff; }
+        #file-info { color: #aaa; margin: 0 0 15px 0; font-size: 0.9rem; }
 
-        #file-info {
-            color: #aaa;
-            margin: 0 0 15px 0;
-            font-size: 0.9rem;
-        }
-
-        .controls {
-            display: none;
-            gap: 10px;
-            justify-content: center;
-            flex-wrap: wrap; 
-            width: 100%;
-        }
+        .controls { display: none; gap: 10px; justify-content: center; flex-wrap: wrap; width: 100%; }
 
         button, select {
             padding: 12px 20px;
@@ -105,11 +81,7 @@
             outline: none;
         }
         
-        select {
-            background-color: #333;
-            color: white;
-            border: 1px solid #444;
-        }
+        select { background-color: #333; color: white; border: 1px solid #444; }
 
         .btn-upload { background-color: #2563eb; color: white; }
         .btn-upload:hover:not(:disabled) { background-color: #1d4ed8; }
@@ -122,52 +94,21 @@
         .btn-remove:hover:not(:disabled) { background-color: #dc2626; }
 
         .loader {
-            display: none;
-            width: 16px;
-            height: 16px;
-            border: 2px solid #fff;
-            border-bottom-color: transparent;
-            border-radius: 50%;
+            display: none; width: 16px; height: 16px; border: 2px solid #fff;
+            border-bottom-color: transparent; border-radius: 50%;
             animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        #progress-text {
-            color: #10b981;
-            font-weight: bold;
-            font-size: 1.1rem;
-            margin-top: 15px;
-            display: none;
-        }
-
-        #results-container {
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #333;
-            width: 100%;
-            display: none;
-            flex-direction: column;
-            gap: 10px;
-        }
+        #progress-text { color: #10b981; font-weight: bold; font-size: 1.1rem; margin-top: 15px; display: none; }
+        #results-container { margin-top: 15px; padding-top: 15px; border-top: 1px solid #333; width: 100%; display: none; flex-direction: column; gap: 10px; }
 
         #toast {
-            visibility: hidden;
-            min-width: 250px;
-            background-color: #333;
-            color: #fff;
-            text-align: center;
-            border-radius: 4px;
-            padding: 16px;
-            position: fixed;
-            z-index: 10001;
-            bottom: 30px;
-            font-size: 14px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            visibility: hidden; min-width: 250px; background-color: #333; color: #fff;
+            text-align: center; border-radius: 4px; padding: 16px; position: fixed;
+            z-index: 10001; bottom: 30px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
-        #toast.show {
-            visibility: visible;
-            animation: fadein 0.5s, fadeout 0.5s 2.5s;
-        }
+        #toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
         @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
         @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
     </style>
@@ -178,7 +119,7 @@
         <input type="file" id="file-input" accept="video/*" style="display: none;">
 
         <div id="paste-area" class="placeholder" onclick="document.getElementById('file-input').click()">
-            <h2>Paste, Drag or Click</h2>
+            <h2>Tıkla veya Sürükle</h2>
             <p>Bölmek istediğiniz videoyu seçin</p>
         </div>
 
@@ -225,16 +166,9 @@
         const chunkSizeSelect = document.getElementById('chunk-size');
         const resultsContainer = document.getElementById('results-container');
 
+        // Sürükle Bırak İşlemleri
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
             document.body.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
-        });
-
-        ['dragenter', 'dragover'].forEach(eventName => {
-            document.body.addEventListener(eventName, () => pasteArea.classList.add('drag-over'), false);
-        });
-
-        ['dragleave', 'drop'].forEach(eventName => {
-            document.body.addEventListener(eventName, () => pasteArea.classList.remove('drag-over'), false);
         });
 
         document.body.addEventListener('drop', (e) => {
@@ -246,10 +180,7 @@
         });
 
         function processFile(file) {
-            if (!file || !file.type.startsWith('video/')) {
-                showToast("Lütfen geçerli bir video dosyası seçin!");
-                return;
-            }
+            if (!file || !file.type.startsWith('video/')) return showToast("Geçerli bir video seçin!");
             
             selectedFile = file;
             fileNameEl.innerText = file.name;
@@ -267,12 +198,7 @@
                 fileInfoEl.innerText = `${sizeMB} MB • ${mins}:${secs < 10 ? '0' : ''}${secs}`;
                 showPreview();
             };
-
-            videoElem.onerror = () => {
-                videoDuration = 60;
-                fileInfoEl.innerText = `${sizeMB} MB • Süre Bilinmiyor`;
-                showPreview();
-            };
+            videoElem.onerror = () => { videoDuration = 60; fileInfoEl.innerText = `${sizeMB} MB`; showPreview(); };
         }
 
         function showPreview() {
@@ -282,106 +208,90 @@
             resultsContainer.style.display = 'none';
             resultsContainer.innerHTML = '';
             progressText.style.display = 'none';
-            resetBtn();
+            splitBtn.disabled = false; btnRemove.disabled = false; chunkSizeSelect.disabled = false;
+            loader.style.display = "none"; splitText.textContent = "Videoyu Böl";
         }
 
         function removeVideo() {
-            selectedFile = null;
-            videoDuration = 0;
-            fileInput.value = "";
-            previewContainer.style.display = 'none';
-            controls.style.display = 'none';
-            resultsContainer.style.display = 'none';
-            pasteArea.style.display = 'block';
-            resetBtn();
-        }
-
-        function resetBtn() {
-            splitBtn.disabled = false;
-            btnRemove.disabled = false;
-            chunkSizeSelect.disabled = false;
-            loader.style.display = "none";
-            splitText.textContent = "Videoyu Böl";
+            selectedFile = null; videoDuration = 0; fileInput.value = "";
+            previewContainer.style.display = 'none'; controls.style.display = 'none';
+            resultsContainer.style.display = 'none'; pasteArea.style.display = 'block';
         }
 
         async function startSplitting() {
             if (!selectedFile) return;
 
-            // UI'ı kilitle
-            splitBtn.disabled = true;
-            btnRemove.disabled = true;
-            chunkSizeSelect.disabled = true;
-            loader.style.display = "inline-block";
-            splitText.textContent = "Lütfen Bekleyin...";
-            resultsContainer.style.display = 'none';
-            resultsContainer.innerHTML = '';
+            splitBtn.disabled = true; btnRemove.disabled = true; chunkSizeSelect.disabled = true;
+            loader.style.display = "inline-block"; splitText.textContent = "Lütfen Bekleyin...";
+            resultsContainer.style.display = 'none'; resultsContainer.innerHTML = '';
             progressText.style.display = 'block';
 
             try {
-                // Eğer daha önce yüklenmediyse, v0.9.4 efsane motorunu başlat
                 if (!ffmpeg) {
-                    progressText.innerText = "Motor yükleniyor... Lütfen bekleyin.";
-                    const { createFFmpeg } = FFmpeg;
-                    
-                    // Worker KULLANMAYAN, dümdüz ana dizinden yüklenen eski core (0.8.5)
-                    ffmpeg = createFFmpeg({
-                        corePath: 'https://unpkg.com/@ffmpeg/core@0.8.5/dist/ffmpeg-core.js',
-                        log: true
-                    });
+                    progressText.innerText = "Motor hazırlanıyor...";
+                    const { FFmpeg } = window.FFmpegWASM;
+                    ffmpeg = new FFmpeg();
 
-                    ffmpeg.setProgress(({ ratio }) => {
-                        const pct = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+                    ffmpeg.on('log', ({ message }) => console.log(message));
+                    ffmpeg.on('progress', ({ progress }) => {
+                        const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
                         progressText.innerText = `İşleniyor: %${pct}`;
                     });
 
-                    await ffmpeg.load();
+                    // CLOUDFLARE BYPASS TAKTİĞİ: Worker'ı tarayıcıda metin olarak indirip sahte bir yerel dosya yaratıyoruz!
+                    progressText.innerText = "Güvenlik duvarı aşılıyor...";
+                    const workerRes = await fetch('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/814.ffmpeg.js');
+                    const workerBlob = new Blob([await workerRes.text()], { type: 'text/javascript' });
+                    const workerUrl = URL.createObjectURL(workerBlob);
+
+                    // Doğrudan dış çekirdek linkleri (İndirme kargaşası ve LFS limitleri yok)
+                    const coreURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js';
+                    const wasmURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm';
+
+                    progressText.innerText = "Sistem yükleniyor...";
+                    await ffmpeg.load({
+                        classWorkerURL: workerUrl,
+                        coreURL: coreURL,
+                        wasmURL: wasmURL
+                    });
                 }
 
                 splitText.textContent = "Bölünüyor...";
-                progressText.innerText = "Video belleğe alınıyor...";
+                progressText.innerText = "Video okunuyor...";
 
-                const { fetchFile } = FFmpeg;
                 const ext = selectedFile.name.split('.').pop() || 'mp4';
                 const inputName = 'input_video.' + ext;
                 
-                // Videoyu sanal sisteme yaz
-                ffmpeg.FS('writeFile', inputName, await fetchFile(selectedFile));
+                const fileData = await selectedFile.arrayBuffer();
+                await ffmpeg.writeFile(inputName, new Uint8Array(fileData));
 
-                // Bölme hesaplamaları
                 const targetMB = parseFloat(chunkSizeSelect.value);
-                const targetBytes = targetMB * 1024 * 1024;
-                const effectiveDuration = videoDuration > 0 ? videoDuration : 60;
-                
-                let estimatedChunkDuration = (targetBytes / selectedFile.size) * effectiveDuration;
-                estimatedChunkDuration = estimatedChunkDuration * 0.90; 
-                if (estimatedChunkDuration <= 0) estimatedChunkDuration = 5;
+                let estimatedChunkDuration = ((targetMB * 1024 * 1024) / selectedFile.size) * (videoDuration > 0 ? videoDuration : 60);
+                estimatedChunkDuration = Math.max(2, estimatedChunkDuration * 0.90); 
 
                 progressText.innerText = "Video parçalanıyor...";
 
-                // Bölme işlemini çalıştır
-                await ffmpeg.run(
+                await ffmpeg.exec([
                     '-i', inputName,
                     '-c', 'copy',
                     '-f', 'segment',
                     '-segment_time', estimatedChunkDuration.toFixed(2),
                     '-reset_timestamps', '1',
                     `output_%03d.${ext}`
-                );
+                ]);
 
                 progressText.innerText = "Dosyalar toplanıyor...";
 
-                // Çıktı dosyalarını bul
-                const files = ffmpeg.FS('readdir', '/');
-                const generatedChunks = files.filter(f => f.startsWith('output_') && f.endsWith('.' + ext));
+                const files = await ffmpeg.listDir('/');
+                const generatedChunks = files.filter(f => f.name.startsWith('output_') && f.name.endsWith('.' + ext));
 
                 if (generatedChunks.length === 0) throw new Error("Parçalama çıktısı alınamadı.");
 
                 resultsContainer.style.display = 'flex';
                 
-                // İndirme butonlarını oluştur
                 for (let i = 0; i < generatedChunks.length; i++) {
-                    const chunkName = generatedChunks[i];
-                    const chunkData = ffmpeg.FS('readFile', chunkName);
+                    const chunkName = generatedChunks[i].name;
+                    const chunkData = await ffmpeg.readFile(chunkName);
                     const chunkBlob = new Blob([chunkData.buffer], { type: `video/${ext}` });
                     const chunkSizeMB = (chunkBlob.size / (1024 * 1024)).toFixed(1);
                     
@@ -392,25 +302,15 @@
                     btn.onclick = () => {
                         const url = URL.createObjectURL(chunkBlob);
                         const a = document.createElement('a');
-                        a.style.display = 'none';
-                        a.href = url;
-                        a.download = `part_${i + 1}_${selectedFile.name}`;
-                        document.body.appendChild(a);
-                        a.click();
-                        setTimeout(() => {
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(url);
-                        }, 1000);
+                        a.style.display = 'none'; a.href = url; a.download = `part_${i + 1}_${selectedFile.name}`;
+                        document.body.appendChild(a); a.click();
+                        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
                     };
-                    
                     resultsContainer.appendChild(btn);
-                    
-                    // İş bitince parçayı bellekten temizle
-                    ffmpeg.FS('unlink', chunkName); 
+                    await ffmpeg.deleteFile(chunkName); 
                 }
 
-                // Ana dosyayı bellekten temizle
-                ffmpeg.FS('unlink', inputName);
+                await ffmpeg.deleteFile(inputName);
                 
                 progressText.innerText = "İşlem Tamamlandı!";
                 showToast(`Başarılı: ${generatedChunks.length} parça oluşturuldu!`);
@@ -418,20 +318,15 @@
                 
             } catch (err) {
                 console.error("İşlem Hatası:", err);
-                showToast("Bölme sırasında hata oluştu. Video çok büyük olabilir.");
+                showToast("Hata oluştu. Lütfen sayfayı yenileyin.");
                 splitText.textContent = "Hata! Tekrar Dene";
             } finally {
-                splitBtn.disabled = false;
-                btnRemove.disabled = false;
-                chunkSizeSelect.disabled = false;
-                loader.style.display = "none";
+                splitBtn.disabled = false; btnRemove.disabled = false; chunkSizeSelect.disabled = false; loader.style.display = "none";
             }
         }
 
         function showToast(message) {
-            const toast = document.getElementById("toast");
-            toast.textContent = message;
-            toast.className = "show";
+            const toast = document.getElementById("toast"); toast.textContent = message; toast.className = "show";
             setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 3000);
         }
     </script>
