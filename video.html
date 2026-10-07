@@ -4,8 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Bölücü</title>
-    <!-- Ana Kütüphane CDN üzerinden yüklenir -->
-    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -29,6 +30,12 @@
             align-items: center;
             padding: 20px;
             box-sizing: border-box;
+        }
+
+        .header-title {
+            margin-bottom: 25px; 
+            color: #e5e7eb;
+            font-weight: 600;
         }
 
         .placeholder {
@@ -162,7 +169,7 @@
             color: #10b981;
             font-weight: bold;
             font-size: 1.1rem;
-            margin-top: 10px;
+            margin-top: 15px;
             display: none;
         }
 
@@ -180,18 +187,15 @@
 <body>
 
     <div class="container">
-        <!-- HEADER -->
-        <h2 style="margin-bottom: 25px; color: #e5e7eb;">✂️ Video Bölücü</h2>
+        <h2 class="header-title">✂️ Video Bölücü</h2>
 
         <input type="file" id="file-input" accept="video/*" style="display: none;">
 
-        <!-- DROP ZONE -->
         <div id="paste-area" class="placeholder" onclick="document.getElementById('file-input').click()">
             <h2>Tıkla veya Sürükle</h2>
             <p>Bölmek istediğiniz videoyu seçin</p>
         </div>
 
-        <!-- PREVIEW DETAILS -->
         <div id="preview-container">
             <h3 id="file-name">video.mp4</h3>
             <p id="file-info">0 MB • 00:00</p>
@@ -209,9 +213,7 @@
                 </button>
             </div>
 
-            <div id="progress-text">İşleniyor: %0</div>
-
-            <!-- DOWNLOAD RESULTS -->
+            <div id="progress-text">Hazırlanıyor...</div>
             <div id="results-container"></div>
         </div>
     </div>
@@ -236,14 +238,10 @@
         const chunkSizeSelect = document.getElementById('chunk-size');
         const resultsContainer = document.getElementById('results-container');
 
+        // Drag and Drop Handlers
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            document.body.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
         });
-
-        function preventDefaults(e) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
 
         ['dragenter', 'dragover'].forEach(eventName => {
             document.body.addEventListener(eventName, () => pasteArea.classList.add('drag-over'), false);
@@ -320,30 +318,26 @@
         }
 
         async function initFFmpeg() {
-            if (ffmpeg && ffmpeg.loaded) return true;
+            if (ffmpeg && ffmpeg.isLoaded()) return true;
             
             try {
-                const { FFmpeg } = window.FFmpegWASM;
-                ffmpeg = new FFmpeg();
+                const { createFFmpeg } = FFmpeg;
+                // v0.11 uses corePath to load the WASM safely without origin issues
+                ffmpeg = createFFmpeg({
+                    corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.2/dist/ffmpeg-core.js',
+                    log: true
+                });
 
-                ffmpeg.on('progress', ({ progress }) => {
-                    const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
+                ffmpeg.setProgress(({ ratio }) => {
+                    const pct = Math.max(0, Math.min(100, Math.round(ratio * 100)));
                     progressText.innerText = `İşleniyor: %${pct}`;
                 });
 
-                // NİHAİ ÇÖZÜM: MELEZ YÖNTEM
-                // Hata çıkartan Worker ve Core dosyalarını sizin GitHub sunucunuzdan (./) yüklüyoruz.
-                // Yüklenmesi imkansız olan 31MB'lık WASM dosyasını CDN'den yüklüyoruz.
-                await ffmpeg.load({
-                    coreURL: './ffmpeg-core.js',
-                    classWorkerURL: './814.ffmpeg.js',
-                    wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm'
-                });
-                
+                await ffmpeg.load();
                 return true;
             } catch (err) {
-                console.error("FFmpeg Init Hatası:", err);
-                showToast("Motor yüklenemedi. Dosyaların GitHub'da olduğundan emin olun.");
+                console.error("FFmpeg Yükleme Hatası:", err);
+                showToast("Motor yüklenemedi. İnternet bağlantınızı kontrol edin.");
                 return false;
             }
         }
@@ -358,6 +352,8 @@
             splitText.textContent = "Motor Yükleniyor...";
             resultsContainer.style.display = 'none';
             resultsContainer.innerHTML = '';
+            progressText.style.display = 'block';
+            progressText.innerText = "Sistem hazırlanıyor...";
 
             const isLoaded = await initFFmpeg();
             if (!isLoaded) {
@@ -367,47 +363,50 @@
 
             try {
                 splitText.textContent = "Bölünüyor...";
-                progressText.style.display = 'block';
-                progressText.innerText = "İşleniyor: %0";
+                progressText.innerText = "Dosya belleğe alınıyor...";
 
+                const { fetchFile } = FFmpeg;
                 const ext = selectedFile.name.split('.').pop() || 'mp4';
                 const inputName = 'input.' + ext;
                 
-                // Videoyu tarayıcı belleğine (WebAssembly'e) alıyoruz
-                const fileData = new Uint8Array(await selectedFile.arrayBuffer());
-                await ffmpeg.writeFile(inputName, fileData);
+                // Write file to FFmpeg's stable v0.11 virtual file system (FS)
+                ffmpeg.FS('writeFile', inputName, await fetchFile(selectedFile));
 
-                // Süre hesaplama (Hedeflenen Boyut / Toplam Boyut = Zaman Oranı)
+                // Calculate duration chunks based on target MB size
                 const targetMB = parseFloat(chunkSizeSelect.value);
                 const targetBytes = targetMB * 1024 * 1024;
                 const effectiveDuration = videoDuration > 0 ? videoDuration : 60;
                 let estimatedChunkDuration = (targetBytes / selectedFile.size) * effectiveDuration;
                 
-                estimatedChunkDuration = estimatedChunkDuration * 0.90; // %10 güvenlik payı
+                estimatedChunkDuration = estimatedChunkDuration * 0.90; // 10% safety margin
                 if (estimatedChunkDuration <= 0) estimatedChunkDuration = 10;
 
-                // Bölme İşlemi (Yeniden kodlamadan, sadece keserek)
-                await ffmpeg.exec([
+                progressText.innerText = "Videolar parçalanıyor... (0%)";
+
+                // Run FFmpeg command
+                await ffmpeg.run(
                     '-i', inputName,
                     '-c', 'copy',
                     '-f', 'segment',
                     '-segment_time', estimatedChunkDuration.toFixed(2),
                     '-reset_timestamps', '1',
-                    'chunk_%03d.' + ext
-                ]);
+                    `chunk_%03d.${ext}`
+                );
 
-                // Çıkan dosyaları listele
-                const filesList = await ffmpeg.listDir('/');
-                const generatedChunks = filesList.filter(f => f.name.startsWith('chunk_') && f.name.endsWith('.' + ext));
+                progressText.innerText = "Parçalar toplanıyor...";
+
+                // Read output files from FS
+                const files = ffmpeg.FS('readdir', '/');
+                const generatedChunks = files.filter(f => f.startsWith('chunk_') && f.endsWith('.' + ext));
 
                 if (generatedChunks.length === 0) throw new Error("Video bölünemedi.");
 
                 resultsContainer.style.display = 'flex';
                 
                 for (let i = 0; i < generatedChunks.length; i++) {
-                    const chunkName = generatedChunks[i].name;
-                    const chunkData = await ffmpeg.readFile(chunkName);
-                    const chunkBlob = new Blob([chunkData.buffer], { type: 'video/' + ext });
+                    const chunkName = generatedChunks[i];
+                    const chunkData = ffmpeg.FS('readFile', chunkName);
+                    const chunkBlob = new Blob([chunkData.buffer], { type: `video/${ext}` });
                     const chunkSizeMB = (chunkBlob.size / (1024 * 1024)).toFixed(1);
                     
                     const btn = document.createElement('button');
@@ -429,17 +428,21 @@
                     };
                     
                     resultsContainer.appendChild(btn);
-                    await ffmpeg.deleteFile(chunkName);
+                    
+                    // Cleanup chunk from memory
+                    ffmpeg.FS('unlink', chunkName);
                 }
 
-                await ffmpeg.deleteFile(inputName);
+                // Cleanup input file
+                ffmpeg.FS('unlink', inputName);
+                
                 progressText.innerText = "İşlem Tamamlandı!";
                 showToast(`Başarılı: ${generatedChunks.length} parça oluşturuldu!`);
-                splitText.textContent = "Tekrar Böl";
+                splitText.textContent = "Başka Video Böl";
                 
             } catch (err) {
                 console.error("İşlem Hatası:", err);
-                showToast("Hata oluştu! Lütfen konsolu kontrol edin.");
+                showToast("Hata oluştu! Tarayıcı belleği yetmemiş olabilir.");
                 splitText.textContent = "Hata! Tekrar Dene";
             } finally {
                 splitBtn.disabled = false;
