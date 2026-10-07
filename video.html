@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <!-- MUST be first: registers COI service worker → enables SharedArrayBuffer for ffmpeg.wasm -->
+    <script src="./coi-serviceworker.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RunVideoSplit</title>
