@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Bölücü</title>
     
+    <!-- FFmpeg v0.11.6 (En stabil ve sorunsuz sürüm) -->
     <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
     
     <style>
+        /* RunClipboard tarzı karanlık ve sade tema */
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #1a1a1a;
@@ -238,7 +240,7 @@
         const chunkSizeSelect = document.getElementById('chunk-size');
         const resultsContainer = document.getElementById('results-container');
 
-        // Drag and Drop Handlers
+        // Sürükle ve bırak engellemeleri (Tarayıcı dosya açmasın diye)
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
             document.body.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
         });
@@ -269,6 +271,7 @@
             fileNameEl.innerText = file.name;
             const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
 
+            // Videonun süresini güvenle almak için geçici element
             const videoElem = document.createElement('video');
             videoElem.preload = 'metadata';
             videoElem.src = URL.createObjectURL(file);
@@ -285,7 +288,7 @@
             };
 
             videoElem.onerror = () => {
-                videoDuration = 60; 
+                videoDuration = 60; // Hata durumunda varsayılan süre
                 fileInfoEl.innerText = `${sizeMB} MB • Süre Bilinmiyor`;
                 showPreview();
             };
@@ -322,7 +325,8 @@
             
             try {
                 const { createFFmpeg } = FFmpeg;
-                // v0.11 uses corePath to load the WASM safely without origin issues
+                
+                // v0.11.6 için sorunsuz çalışan kurulum şekli. "jeromewu" hatası vermez.
                 ffmpeg = createFFmpeg({
                     corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.2/dist/ffmpeg-core.js',
                     log: true
@@ -369,21 +373,22 @@
                 const ext = selectedFile.name.split('.').pop() || 'mp4';
                 const inputName = 'input.' + ext;
                 
-                // Write file to FFmpeg's stable v0.11 virtual file system (FS)
+                // Seçilen videoyu FFmpeg bellek sistemine (FS) yazıyoruz
                 ffmpeg.FS('writeFile', inputName, await fetchFile(selectedFile));
 
-                // Calculate duration chunks based on target MB size
+                // Dosya boyutuna göre süreyi hesaplıyoruz
                 const targetMB = parseFloat(chunkSizeSelect.value);
                 const targetBytes = targetMB * 1024 * 1024;
                 const effectiveDuration = videoDuration > 0 ? videoDuration : 60;
                 let estimatedChunkDuration = (targetBytes / selectedFile.size) * effectiveDuration;
                 
-                estimatedChunkDuration = estimatedChunkDuration * 0.90; // 10% safety margin
+                // Dosya sınırını aşmaması için %10'luk güvenlik payı
+                estimatedChunkDuration = estimatedChunkDuration * 0.90; 
                 if (estimatedChunkDuration <= 0) estimatedChunkDuration = 10;
 
-                progressText.innerText = "Videolar parçalanıyor... (0%)";
+                progressText.innerText = "Videolar parçalanıyor... (Lütfen Bekleyin)";
 
-                // Run FFmpeg command
+                // v0.11 segment komutu (kopyalama yaparak görüntü bozulmasını engeller)
                 await ffmpeg.run(
                     '-i', inputName,
                     '-c', 'copy',
@@ -395,7 +400,7 @@
 
                 progressText.innerText = "Parçalar toplanıyor...";
 
-                // Read output files from FS
+                // Bölünmüş parçaları FS içinden okuma
                 const files = ffmpeg.FS('readdir', '/');
                 const generatedChunks = files.filter(f => f.startsWith('chunk_') && f.endsWith('.' + ext));
 
@@ -413,6 +418,7 @@
                     btn.className = 'btn-success';
                     btn.innerHTML = `⬇️ Parça ${i + 1} İndir (${chunkSizeMB} MB)`;
                     
+                    // İndirme mekanizması
                     btn.onclick = () => {
                         const url = URL.createObjectURL(chunkBlob);
                         const a = document.createElement('a');
@@ -429,11 +435,10 @@
                     
                     resultsContainer.appendChild(btn);
                     
-                    // Cleanup chunk from memory
+                    // Belleği temizle (Tarayıcı çökmesin diye)
                     ffmpeg.FS('unlink', chunkName);
                 }
 
-                // Cleanup input file
                 ffmpeg.FS('unlink', inputName);
                 
                 progressText.innerText = "İşlem Tamamlandı!";
