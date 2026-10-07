@@ -461,8 +461,13 @@ async function splitVideo() {
         showToast('⚠ Could not determine video duration.'); return;
     }
 
-    // Time slice proportional to byte size
-    const timePerChunk = (chunkBytes / currentFile.size) * duration;
+    // ── KEY FIX: target 82% so keyframe-boundary overshoot never exceeds limit ──
+    // FFmpeg -c copy can only cut at keyframe boundaries, so actual chunk size is
+    // slightly larger than the target (by up to one GOP worth of data). Targeting
+    // 82% gives ~18% headroom which covers typical H.264/H.265 overshoot without
+    // creating tiny leftover fragments from re-splitting.
+    const targetBytes  = chunkBytes * 0.82;
+    const timePerChunk = (targetBytes / currentFile.size) * duration;
 
     // UI: busy
     loaderEl.style.display      = 'inline-block';
