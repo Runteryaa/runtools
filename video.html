@@ -1,14 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="tr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Bölücü</title>
     
-    <!-- FFmpeg v0.12 UMD (Sıfır SharedArrayBuffer Gereksinimi) -->
+    <!-- 1. FFmpeg Ana Kütüphanesi -->
     <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
     
+    <!-- 2. İŞTE BENİM UNUTTUĞUM VE BÜTÜN SORUNLARI YARATAN O YARDIMCI KÜTÜPHANE -->
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/util.js"></script>
+    
     <style>
+        /* RunClipboard Karanlık ve Sade Teması */
         body {
             font-family: 'Segoe UI', sans-serif;
             background-color: #1a1a1a;
@@ -166,7 +170,6 @@
         const chunkSizeSelect = document.getElementById('chunk-size');
         const resultsContainer = document.getElementById('results-container');
 
-        // Sürükle Bırak İşlemleri
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
             document.body.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
         });
@@ -218,6 +221,33 @@
             resultsContainer.style.display = 'none'; pasteArea.style.display = 'block';
         }
 
+        async function initFFmpeg() {
+            if (ffmpeg) return;
+            
+            // İşte unuttuğum ve sistemin çökmesine neden olan toBlobURL fonksiyonunun düzgün içe aktarımı
+            const { FFmpeg } = window.FFmpegWASM;
+            const { fetchFile, toBlobURL } = window.FFmpegUtil; 
+
+            ffmpeg = new FFmpeg();
+            ffmpeg.on('log', ({ message }) => console.log(message));
+            ffmpeg.on('progress', ({ progress }) => {
+                const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
+                progressText.innerText = `İşleniyor: %${pct}`;
+            });
+
+            progressText.innerText = "Sistem ve Güvenlik Duvarı Yükleniyor...";
+            
+            const coreURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+            const wasmURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd';
+
+            // CORS'u tam anlamıyla hackleyen orijinal toBlobURL metodu
+            await ffmpeg.load({
+                coreURL: await toBlobURL(`${coreURL}/ffmpeg-core.js`, 'text/javascript'),
+                wasmURL: await toBlobURL(`${coreURL}/ffmpeg-core.wasm`, 'application/wasm'),
+                classWorkerURL: await toBlobURL(`${wasmURL}/814.ffmpeg.js`, 'text/javascript'),
+            });
+        }
+
         async function startSplitting() {
             if (!selectedFile) return;
 
@@ -227,43 +257,17 @@
             progressText.style.display = 'block';
 
             try {
-                if (!ffmpeg) {
-                    progressText.innerText = "Motor hazırlanıyor...";
-                    const { FFmpeg } = window.FFmpegWASM;
-                    ffmpeg = new FFmpeg();
-
-                    ffmpeg.on('log', ({ message }) => console.log(message));
-                    ffmpeg.on('progress', ({ progress }) => {
-                        const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
-                        progressText.innerText = `İşleniyor: %${pct}`;
-                    });
-
-                    // CLOUDFLARE BYPASS TAKTİĞİ: Worker'ı tarayıcıda metin olarak indirip sahte bir yerel dosya yaratıyoruz!
-                    progressText.innerText = "Güvenlik duvarı aşılıyor...";
-                    const workerRes = await fetch('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/814.ffmpeg.js');
-                    const workerBlob = new Blob([await workerRes.text()], { type: 'text/javascript' });
-                    const workerUrl = URL.createObjectURL(workerBlob);
-
-                    // Doğrudan dış çekirdek linkleri (İndirme kargaşası ve LFS limitleri yok)
-                    const coreURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js';
-                    const wasmURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm';
-
-                    progressText.innerText = "Sistem yükleniyor...";
-                    await ffmpeg.load({
-                        classWorkerURL: workerUrl,
-                        coreURL: coreURL,
-                        wasmURL: wasmURL
-                    });
-                }
+                await initFFmpeg();
 
                 splitText.textContent = "Bölünüyor...";
                 progressText.innerText = "Video okunuyor...";
 
+                const { fetchFile } = window.FFmpegUtil;
                 const ext = selectedFile.name.split('.').pop() || 'mp4';
                 const inputName = 'input_video.' + ext;
                 
-                const fileData = await selectedFile.arrayBuffer();
-                await ffmpeg.writeFile(inputName, new Uint8Array(fileData));
+                const fileData = await fetchFile(selectedFile);
+                await ffmpeg.writeFile(inputName, fileData);
 
                 const targetMB = parseFloat(chunkSizeSelect.value);
                 let estimatedChunkDuration = ((targetMB * 1024 * 1024) / selectedFile.size) * (videoDuration > 0 ? videoDuration : 60);
@@ -318,7 +322,7 @@
                 
             } catch (err) {
                 console.error("İşlem Hatası:", err);
-                showToast("Hata oluştu. Lütfen sayfayı yenileyin.");
+                showToast("Hata oluştu. İnternet bağlantınızı kontrol edip sayfayı yenileyin.");
                 splitText.textContent = "Hata! Tekrar Dene";
             } finally {
                 splitBtn.disabled = false; btnRemove.disabled = false; chunkSizeSelect.disabled = false; loader.style.display = "none";
