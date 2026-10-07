@@ -6,7 +6,8 @@
     <title>Video Bölücü (25MB)</title>
     
     <!-- FFmpeg.wasm v0.12 Dependencies -->
-    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js"></script>
     
     <style>
         /* Modern Dark Theme Styling - Matching the RunClipboard aesthetic */
@@ -399,24 +400,12 @@
             downloadAllBtn.style.display = 'none';
         }
 
-        // Native Helper to safely load worker files locally and bypass CORS
-        async function toBlobURLWrapper(url, mimeType) {
-            try {
-                const resp = await fetch(url);
-                const buffer = await resp.arrayBuffer();
-                const blob = new Blob([buffer], { type: mimeType });
-                return URL.createObjectURL(blob);
-            } catch (e) {
-                console.error("Failed to load Blob URL:", e);
-                return url; 
-            }
-        }
-
         async function initFFmpeg() {
             if (ffmpeg && ffmpeg.loaded) return true;
             
             try {
                 const { FFmpeg } = window.FFmpegWASM || window;
+                const { toBlobURL } = window.FFmpegUtil || window;
 
                 if (!FFmpeg) throw new Error("FFmpeg engine not found.");
                 
@@ -429,19 +418,17 @@
                     progressText.textContent = `Processing: ${pct}%`;
                 });
 
-                const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
-                const ffmpegURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd';
+                const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
 
-                // THE FIX: Use native fetch to convert scripts to local blobs
                 progressText.textContent = "Loading engine securely...";
-                const coreURL = await toBlobURLWrapper(`${baseURL}/ffmpeg-core.js`, 'text/javascript');
-                const wasmURL = await toBlobURLWrapper(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm');
-                const classWorkerURL = await toBlobURLWrapper(`${ffmpegURL}/814.ffmpeg.js`, 'text/javascript');
+                
+                // Use the official utility to safely create Blobs from unpkg
+                const coreURL = await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript');
+                const wasmURL = await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm');
 
                 await ffmpeg.load({
                     coreURL,
-                    wasmURL,
-                    classWorkerURL
+                    wasmURL
                 });
                 
                 return true;
