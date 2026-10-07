@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Bölücü</title>
     
-    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <!-- Sadece ana kütüphaneyi yüklüyoruz. Geri kalanı arka planda Blob ile indirilecek. -->
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
     
     <style>
         body {
@@ -226,6 +227,7 @@
         
         let selectedFile = null;
         let videoDuration = 0;
+        let engineLoaded = false; // Prevents re-downloading Blobs unnecessarily
 
         const pasteArea = document.getElementById('paste-area');
         const previewContainer = document.getElementById('preview-container');
@@ -241,7 +243,6 @@
         const chunkSizeSelect = document.getElementById('chunk-size');
         const resultsContainer = document.getElementById('results-container');
 
-        // Drag & Drop Engellemeleri
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
             document.body.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
         });
@@ -272,6 +273,7 @@
             fileNameEl.innerText = file.name;
             const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
 
+            // Extract video duration
             const videoElem = document.createElement('video');
             videoElem.preload = 'metadata';
             videoElem.src = URL.createObjectURL(file);
@@ -286,7 +288,7 @@
             };
 
             videoElem.onerror = () => {
-                videoDuration = 60; 
+                videoDuration = 60; // Fallback duration
                 fileInfoEl.innerText = `${sizeMB} MB • Süre Bilinmiyor`;
                 showPreview();
             };
@@ -320,8 +322,17 @@
             splitText.textContent = "Bölmeye Başla";
         }
 
+        // Bu fonksiyon dosyayı CDN'den indirir ve geçici bir yerel adrese (blob:) dönüştürür
+        async function fetchToBlob(url, mimeType) {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP Hatası: ${response.status}`);
+            const buffer = await response.arrayBuffer();
+            const blob = new Blob([buffer], { type: mimeType });
+            return URL.createObjectURL(blob);
+        }
+
         async function initFFmpeg() {
-            if (ffmpeg.loaded) return true;
+            if (engineLoaded) return true;
             
             try {
                 ffmpeg.on('progress', ({ progress }) => {
@@ -329,22 +340,30 @@
                     progressText.innerText = `İşleniyor: %${pct}`;
                 });
 
-                // MAGIC TRICK: "jeromewu" ve "SecurityError" sorununu çözen Blob Worker metodu
-                // Bu kod tarayıcıyı kandırarak Worker'ı kendi sitemizdeymiş gibi çalıştırır
-                const workerCode = `importScripts('https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/814.ffmpeg.js');`;
-                const workerBlob = new Blob([workerCode], { type: 'text/javascript' });
-                const workerBlobURL = URL.createObjectURL(workerBlob);
+                progressText.innerText = "Motor dosyaları indiriliyor (Lütfen Bekleyin)...";
 
+                const ffmpegBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd';
+                const coreBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+
+                // Tüm çekirdek dosyaları arka planda yerel blob dosyalara dönüştürüyoruz.
+                // Bu sayede Worker veya Origin hatalarını KÖKTEN çözmüş oluyoruz.
+                const [coreUrl, wasmUrl, workerUrl] = await Promise.all([
+                    fetchToBlob(`${coreBase}/ffmpeg-core.js`, 'text/javascript'),
+                    fetchToBlob(`${coreBase}/ffmpeg-core.wasm`, 'application/wasm'),
+                    fetchToBlob(`${ffmpegBase}/814.ffmpeg.js`, 'text/javascript')
+                ]);
+                
                 await ffmpeg.load({
-                    coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
-                    wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
-                    classWorkerURL: workerBlobURL
+                    coreURL: coreUrl,
+                    wasmURL: wasmUrl,
+                    classWorkerURL: workerUrl
                 });
                 
+                engineLoaded = true;
                 return true;
             } catch (err) {
-                console.error("FFmpeg Yükleme Hatası:", err);
-                showToast("Motor yüklenemedi. İnternet bağlantınızı kontrol edin.");
+                console.error("FFmpeg Init Hatası:", err);
+                showToast("Motor dosyaları indirilemedi. İnternetinizi kontrol edin.");
                 return false;
             }
         }
@@ -360,7 +379,6 @@
             resultsContainer.style.display = 'none';
             resultsContainer.innerHTML = '';
             progressText.style.display = 'block';
-            progressText.innerText = "Sistem hazırlanıyor...";
 
             const isLoaded = await initFFmpeg();
             if (!isLoaded) {
@@ -375,7 +393,7 @@
                 const ext = selectedFile.name.split('.').pop() || 'mp4';
                 const inputName = 'input.' + ext;
                 
-                // Dış kütüphane olmadan dosyayı doğrudan byte array olarak okuyup FFmpeg'e veriyoruz
+                // Read video as byte array and write to FFmpeg FS
                 const arrayBuffer = await selectedFile.arrayBuffer();
                 const uint8Array = new Uint8Array(arrayBuffer);
                 await ffmpeg.writeFile(inputName, uint8Array);
@@ -383,14 +401,15 @@
                 const targetMB = parseFloat(chunkSizeSelect.value);
                 const targetBytes = targetMB * 1024 * 1024;
                 const effectiveDuration = videoDuration > 0 ? videoDuration : 60;
-                let estimatedChunkDuration = (targetBytes / selectedFile.size) * effectiveDuration;
                 
-                estimatedChunkDuration = estimatedChunkDuration * 0.90; 
+                // Estimate segment time (Subtracting 5% for safety margin)
+                let estimatedChunkDuration = (targetBytes / selectedFile.size) * effectiveDuration;
+                estimatedChunkDuration = estimatedChunkDuration * 0.95; 
                 if (estimatedChunkDuration <= 0) estimatedChunkDuration = 10;
 
                 progressText.innerText = "Videolar parçalanıyor... (Lütfen Bekleyin)";
 
-                // Bölme komutu
+                // Execute splitting
                 await ffmpeg.exec([
                     '-i', inputName,
                     '-c', 'copy',
@@ -402,7 +421,7 @@
 
                 progressText.innerText = "Parçalar toplanıyor...";
 
-                // V0.12 API'si ile klasörü oku
+                // Read output files
                 const files = await ffmpeg.listDir('/');
                 const generatedChunks = files.filter(f => f.name.startsWith('chunk_') && f.name.endsWith('.' + ext));
 
@@ -435,14 +454,16 @@
                     };
                     
                     resultsContainer.appendChild(btn);
-                    await ffmpeg.deleteFile(chunkName); // Belleği temizle
+                    
+                    // Clean memory
+                    await ffmpeg.deleteFile(chunkName); 
                 }
 
                 await ffmpeg.deleteFile(inputName);
                 
                 progressText.innerText = "İşlem Tamamlandı!";
                 showToast(`Başarılı: ${generatedChunks.length} parça oluşturuldu!`);
-                splitText.textContent = "Başka Video Böl";
+                splitText.textContent = "Yeniden Böl (Tamamlandı)";
                 
             } catch (err) {
                 console.error("İşlem Hatası:", err);
