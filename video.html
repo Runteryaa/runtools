@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Bölücü</title>
-    <!-- SADECE CORE FFmpeg yüklüyoruz, util kütüphanesini sildik -->
-    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <!-- 1. Dış bağlantı kaldırıldı, yerel ffmpeg.js yüklüyoruz -->
+    <script src="./ffmpeg.js"></script>
     <style>
         /* Modern Dark Theme Styling - Tamamen RunClipboard ile aynı */
         body {
@@ -292,7 +292,6 @@
             fileNameEl.innerText = file.name;
             const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
 
-            // Get video duration via a temporary element
             const videoElem = document.createElement('video');
             videoElem.preload = 'metadata';
             videoElem.src = URL.createObjectURL(file);
@@ -308,9 +307,8 @@
                 showPreview();
             };
 
-            // Fallback if metadata fails
             videoElem.onerror = () => {
-                videoDuration = 60; // default assumption
+                videoDuration = 60; 
                 fileInfoEl.innerText = `${sizeMB} MB • Süre Bilinmiyor`;
                 showPreview();
             };
@@ -344,14 +342,7 @@
             splitText.textContent = "Bölmeye Başla";
         }
 
-        // Dış kütüphane bağımlılığını (toBlobURL hatasını) ortadan kaldıran KENDİ fonksiyonumuz
-        async function fetchToBlobUrl(url, mimeType) {
-            const response = await fetch(url);
-            const blob = await response.blob();
-            return URL.createObjectURL(new Blob([blob], { type: mimeType }));
-        }
-
-        // Dosyayı arrayBuffer'a çeviren bağımsız yerel fonksiyon
+        // Yerleşik okuma fonksiyonu
         async function fetchFileData(file) {
             return new Uint8Array(await file.arrayBuffer());
         }
@@ -368,25 +359,18 @@
                     progressText.innerText = `İşleniyor: %${pct}`;
                 });
 
-                // Hem Core hem de FFmpeg kütüphanesinin CDN yolları
-                const coreBase = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-                const ffmpegBase = 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd';
-                
-                const coreURL = await fetchToBlobUrl(`${coreBase}/ffmpeg-core.js`, 'text/javascript');
-                const wasmURL = await fetchToBlobUrl(`${coreBase}/ffmpeg-core.wasm`, 'application/wasm');
-                const classWorkerURL = await fetchToBlobUrl(`${ffmpegBase}/814.ffmpeg.js`, 'text/javascript');
-
-                // Cross-Origin (CORS) hatasını aşmak için classWorkerURL'i de manuel veriyoruz
+                // GitHub'ın 25MB limitine takılmamak için Core ve Wasm dosyalarını CDN'den çekiyoruz.
+                // Ancak 814.ffmpeg.js (Worker) yerel deponuzdan yüklenmeye devam ediyor.
                 await ffmpeg.load({
-                    coreURL: coreURL,
-                    wasmURL: wasmURL,
-                    classWorkerURL: classWorkerURL
+                    coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+                    wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
+                    classWorkerURL: './814.ffmpeg.js'
                 });
                 
                 return true;
             } catch (err) {
                 console.error("FFmpeg Init Hatası:", err);
-                showToast("Hata: " + err.message);
+                showToast("Motor başlatılamadı. Sunucu bağlantınızı kontrol edin.");
                 return false;
             }
         }
@@ -416,21 +400,17 @@
                 const ext = selectedFile.name.split('.').pop() || 'mp4';
                 const inputName = 'input.' + ext;
                 
-                // Kendi yerel çeviri fonksiyonumuzla dosyayı FFmpeg'e yazıyoruz
                 const fileData = await fetchFileData(selectedFile);
                 await ffmpeg.writeFile(inputName, fileData);
 
-                // Algoritma: Hedef mb'a göre segment süresini belirleme
                 const targetMB = parseFloat(chunkSizeSelect.value);
                 const targetBytes = targetMB * 1024 * 1024;
                 const effectiveDuration = videoDuration > 0 ? videoDuration : 60;
                 let estimatedChunkDuration = (targetBytes / selectedFile.size) * effectiveDuration;
                 
-                // Güvenlik payı (Dosya limitini kıl payı geçmesini önler)
                 estimatedChunkDuration = estimatedChunkDuration * 0.90; 
                 if (estimatedChunkDuration <= 0) estimatedChunkDuration = 10;
 
-                // FFmpeg bölme komutu
                 await ffmpeg.exec([
                     '-i', inputName,
                     '-c', 'copy',
@@ -440,7 +420,6 @@
                     'chunk_%03d.' + ext
                 ]);
 
-                // Oluşan parçaları okuma
                 const filesList = await ffmpeg.listDir('/');
                 const generatedChunks = filesList.filter(f => f.name.startsWith('chunk_') && f.name.endsWith('.' + ext));
 
@@ -458,7 +437,6 @@
                     btn.className = 'btn-upload-success';
                     btn.innerHTML = `⬇️ Parça ${i + 1} (${chunkSizeMB} MB)`;
                     
-                    // İndirme işlemi
                     btn.onclick = () => {
                         const url = URL.createObjectURL(chunkBlob);
                         const a = document.createElement('a');
@@ -474,8 +452,6 @@
                     };
                     
                     resultsContainer.appendChild(btn);
-                    
-                    // Belleği temizle
                     await ffmpeg.deleteFile(chunkName);
                 }
 
