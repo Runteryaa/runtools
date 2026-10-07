@@ -1,15 +1,15 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Bölücü</title>
     
-    <!-- Ana FFmpeg kütüphanesi CDN'den güvenle alınabilir, Worker kurallarına takılmaz -->
-    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <!-- Ana kütüphaneyi CDN'den alıyoruz -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
     
     <style>
-        /* Modern Dark Theme Styling - RunClipboard Birebir Aynı Arayüz */
+        /* Modern Dark Theme Styling - RunClipboard Arayüzü */
         body {
             font-family: 'Segoe UI', sans-serif;
             background-color: #1a1a1a;
@@ -212,7 +212,6 @@
         
         let selectedFile = null;
         let videoDuration = 0;
-        let isEngineLoaded = false;
 
         const pasteArea = document.getElementById('paste-area');
         const previewContainer = document.getElementById('preview-container');
@@ -308,7 +307,7 @@
         }
 
         async function initFFmpeg() {
-            if (isEngineLoaded) return true;
+            if (ffmpeg.loaded) return true;
             
             try {
                 ffmpeg.on('progress', ({ progress }) => {
@@ -316,24 +315,29 @@
                     progressText.innerText = `İşleniyor: %${pct}`;
                 });
 
-                progressText.innerText = "Motor yükleniyor... (Lokal)";
+                progressText.innerText = "Motor yükleniyor... Lütfen bekleyin.";
 
-                /* 
-                  NİHAİ ÇÖZÜM: MELEZ (HYBRID) METOT
-                  - İşçi (Worker) dosyası aynı sunucudan (lokal) yüklenir, Cloudflare/CORS CSP engeline takılmaz.
-                  - Devasa WASM dosyası CDN'den (dışarıdan) çekilir, Github'ın 25MB limitine takılmaz.
-                */
+                // Cloudflare/GitHub CORS hatalarını aşan NİHAİ KESİN ÇÖZÜM:
+                const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+                const ffmpegURL = 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd';
+
+                // 1. Worker dosyasını CDN'den yazı olarak çekip sahte bir yerel dosya yaratıyoruz (Güvenlik engeli kalkar)
+                const workerResp = await fetch(`${ffmpegURL}/814.ffmpeg.js`);
+                const workerText = await workerResp.text();
+                const workerBlob = new Blob([workerText], { type: 'text/javascript' });
+                const workerURL = URL.createObjectURL(workerBlob);
+
+                // 2. Çekirdek dosyalara TAM ADRES (Absolute URL) veriyoruz ki sanal dosya kaybolmasın (import hatası kalkar)
                 await ffmpeg.load({
-                    classWorkerURL: './814.ffmpeg.js', // Sizin sunucunuzda olması gereken 3KB'lık dosya
-                    coreURL: './ffmpeg-core.js',       // Sizin sunucunuzda olması gereken 113KB'lık dosya
-                    wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm' // CDN
+                    coreURL: `${baseURL}/ffmpeg-core.js`,
+                    wasmURL: `${baseURL}/ffmpeg-core.wasm`,
+                    classWorkerURL: workerURL
                 });
                 
-                isEngineLoaded = true;
                 return true;
             } catch (err) {
                 console.error("FFmpeg Init Hatası:", err);
-                showToast("Hata! Lütfen 814.ffmpeg.js ve ffmpeg-core.js dosyalarının ana dizinde olduğundan emin olun.");
+                showToast("Yükleme hatası. Lütfen sayfayı yenileyin.");
                 return false;
             }
         }
@@ -363,7 +367,6 @@
                 const ext = selectedFile.name.split('.').pop() || 'mp4';
                 const inputName = 'input_video.' + ext;
                 
-                // Native arrayBuffer to avoid external utility dependencies
                 const arrayBuffer = await selectedFile.arrayBuffer();
                 await ffmpeg.writeFile(inputName, new Uint8Array(arrayBuffer));
 
@@ -372,7 +375,7 @@
                 const effectiveDuration = videoDuration > 0 ? videoDuration : 60;
                 
                 let estimatedChunkDuration = (targetBytes / selectedFile.size) * effectiveDuration;
-                estimatedChunkDuration = estimatedChunkDuration * 0.90; // %10 Güvenlik payı
+                estimatedChunkDuration = estimatedChunkDuration * 0.90; 
                 if (estimatedChunkDuration <= 0) estimatedChunkDuration = 5;
 
                 progressText.innerText = "Video parçalanıyor...";
@@ -388,7 +391,6 @@
 
                 progressText.innerText = "Dosyalar toplanıyor...";
 
-                // Yeni API listDir metodu (v0.12)
                 const files = await ffmpeg.listDir('/');
                 const generatedChunks = files.filter(f => f.name.startsWith('output_') && f.name.endsWith('.' + ext));
 
@@ -421,8 +423,6 @@
                     };
                     
                     resultsContainer.appendChild(btn);
-                    
-                    // Belleği temizle
                     await ffmpeg.deleteFile(chunkName); 
                 }
 
