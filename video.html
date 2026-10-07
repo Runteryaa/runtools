@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Bölücü</title>
-    <!-- 1. Dış bağlantı kaldırıldı, yerel ffmpeg.js yüklüyoruz -->
-    <script src="./ffmpeg.js"></script>
+    <!-- Tüm bağımlılıklar güvenli CDN üzerinden yüklenecek -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
     <style>
         /* Modern Dark Theme Styling - Tamamen RunClipboard ile aynı */
         body {
@@ -347,6 +347,13 @@
             return new Uint8Array(await file.arrayBuffer());
         }
 
+        // Güvenlik (CORS) hatalarını aşmak için dosyaları yerel belleğe (Blob) indiren fonksiyon
+        async function getBlobURL(url, mimeType) {
+            const resp = await fetch(url);
+            const blob = await resp.blob();
+            return URL.createObjectURL(new Blob([blob], { type: mimeType }));
+        }
+
         async function initFFmpeg() {
             if (ffmpeg && ffmpeg.loaded) return true;
             
@@ -359,12 +366,20 @@
                     progressText.innerText = `İşleniyor: %${pct}`;
                 });
 
-                // GitHub'ın 25MB limitine takılmamak için Core ve Wasm dosyalarını CDN'den çekiyoruz.
-                // Ancak 814.ffmpeg.js (Worker) yerel deponuzdan yüklenmeye devam ediyor.
+                // CORS ve Worker hatalarını tamamen yok etmek için tüm çekirdek dosyaları 
+                // CDN'den çekip doğrudan tarayıcı belleğinde (Blob) çalıştırıyoruz.
+                // Böylece GitHub veya Cloudflare Pages'te %100 sorunsuz çalışır.
+                const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+                const ffmpegURL = 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd';
+
+                const coreURL = await getBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript');
+                const wasmURL = await getBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm');
+                const workerURL = await getBlobURL(`${ffmpegURL}/814.ffmpeg.js`, 'text/javascript');
+
                 await ffmpeg.load({
-                    coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
-                    wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
-                    classWorkerURL: './814.ffmpeg.js'
+                    coreURL: coreURL,
+                    wasmURL: wasmURL,
+                    classWorkerURL: workerURL
                 });
                 
                 return true;
