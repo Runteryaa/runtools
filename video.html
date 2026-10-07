@@ -368,12 +368,19 @@
                     progressText.innerText = `İşleniyor: %${pct}`;
                 });
 
-                const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+                // Hem Core hem de FFmpeg kütüphanesinin CDN yolları
+                const coreBase = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+                const ffmpegBase = 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd';
                 
-                // Artık doğrudan kendi yazdığımız fetchToBlobUrl fonksiyonunu kullanıyoruz! Hata yok!
+                const coreURL = await fetchToBlobUrl(`${coreBase}/ffmpeg-core.js`, 'text/javascript');
+                const wasmURL = await fetchToBlobUrl(`${coreBase}/ffmpeg-core.wasm`, 'application/wasm');
+                const classWorkerURL = await fetchToBlobUrl(`${ffmpegBase}/814.ffmpeg.js`, 'text/javascript');
+
+                // Cross-Origin (CORS) hatasını aşmak için classWorkerURL'i de manuel veriyoruz
                 await ffmpeg.load({
-                    coreURL: await fetchToBlobUrl(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-                    wasmURL: await fetchToBlobUrl(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
+                    coreURL: coreURL,
+                    wasmURL: wasmURL,
+                    classWorkerURL: classWorkerURL
                 });
                 
                 return true;
