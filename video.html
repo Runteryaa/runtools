@@ -281,8 +281,49 @@
             outline: none;
             box-shadow: 0 20px 60px rgba(0,0,0,0.7);
         }
+        /* Mode toggle */
+        .mode-toggle {
+            display: flex;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 7px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .mode-btn {
+            padding: 6px 14px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            border: none;
+            background: transparent;
+            color: #888;
+            cursor: pointer;
+            border-radius: 0;
+            transition: background 0.15s, color 0.15s;
+        }
+        .mode-btn.active {
+            background: #2563eb;
+            color: #fff;
+        }
+        .mode-btn:hover:not(.active) { background: #333; color: #ccc; }
 
-        /* Loader spinner */
+        /* time input */
+        .time-inputs { display: flex; align-items: center; gap: 4px; }
+        .time-inputs input[type="number"] {
+            background-color: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: #fff;
+            padding: 6px 8px;
+            font-size: 0.9rem;
+            width: 56px;
+            outline: none;
+            text-align: center;
+        }
+        .time-inputs input[type="number"]:focus { border-color: #2563eb; }
+        .time-inputs span { color: #666; font-size: 0.85rem; }
+
+
         .loader {
             display: none;
             width: 16px;
@@ -336,11 +377,31 @@
         <div id="file-meta"></div>
     </div>
 
-    <!-- Chunk size setting -->
+    <!-- Split mode settings -->
     <div class="settings-row" id="settings-row">
-        <label for="chunk-size-input">Chunk size:</label>
-        <input type="number" id="chunk-size-input" value="25" min="1" max="2000">
-        <span>MB</span>
+        <!-- Mode toggle -->
+        <div class="mode-toggle">
+            <button class="mode-btn active" id="btn-mode-size"   onclick="setMode('size')">📦 Size</button>
+            <button class="mode-btn"        id="btn-mode-time"   onclick="setMode('time')">⏱ Duration</button>
+        </div>
+
+        <!-- Size panel -->
+        <div id="panel-size" style="display:flex; align-items:center; gap:8px;">
+            <label for="chunk-size-input" style="color:#aaa;font-size:.9rem;">per chunk:</label>
+            <input type="number" id="chunk-size-input" value="25" min="1" max="2000" style="background:#2a2a2a;border:1px solid #444;border-radius:6px;color:#fff;padding:6px 10px;font-size:.9rem;width:72px;outline:none;">
+            <span style="color:#666;font-size:.9rem;">MB</span>
+        </div>
+
+        <!-- Duration panel -->
+        <div id="panel-time" style="display:none; align-items:center; gap:8px;">
+            <label style="color:#aaa;font-size:.9rem;">per chunk:</label>
+            <div class="time-inputs">
+                <input type="number" id="chunk-min-input"  value="1" min="0" max="999" placeholder="mm">
+                <span>m</span>
+                <input type="number" id="chunk-sec-input"  value="0" min="0" max="59"  placeholder="ss">
+                <span>s</span>
+            </div>
+        </div>
     </div>
 
     <!-- Action buttons -->
@@ -512,30 +573,49 @@ function removeFile() {
     if (!ffmpegReady) progressWrap.style.display = 'none';
 }
 
+// ─── Mode toggle ──────────────────────────────────────────────────────────────
+let splitMode = 'size'; // 'size' | 'time'
+
+function setMode(mode) {
+    splitMode = mode;
+    document.getElementById('btn-mode-size').classList.toggle('active', mode === 'size');
+    document.getElementById('btn-mode-time').classList.toggle('active', mode === 'time');
+    document.getElementById('panel-size').style.display = mode === 'size' ? 'flex' : 'none';
+    document.getElementById('panel-time').style.display = mode === 'time' ? 'flex' : 'none';
+}
+
 // ─── Splitting ────────────────────────────────────────────────────────────────
 async function splitVideo() {
     if (!currentFile) return;
     if (!ffmpegReady) { showToast('⏳ FFmpeg is still loading, please wait…'); return; }
 
-    const chunkMB    = parseFloat(document.getElementById('chunk-size-input').value) || 25;
-    const chunkBytes = chunkMB * 1000 * 1000; // decimal MB → exact Windows display
+    // ── Resolve timePerChunk based on selected mode ───────────────────────────
+    let timePerChunk; // seconds
+    let chunkLabel;   // string shown in the chunk list header
 
-    // Get duration via HTML5 video element
-    let duration;
-    try { duration = await getVideoDuration(currentFile); }
-    catch { showToast('⚠ Could not read video metadata.'); return; }
+    if (splitMode === 'time') {
+        const mins = parseInt(document.getElementById('chunk-min-input').value) || 0;
+        const secs = parseInt(document.getElementById('chunk-sec-input').value)  || 0;
+        timePerChunk = mins * 60 + secs;
+        if (timePerChunk <= 0) { showToast('⚠ Please enter a duration greater than 0.'); return; }
+        chunkLabel = `${mins}m ${secs}s`;
+    } else {
+        const chunkMB    = parseFloat(document.getElementById('chunk-size-input').value) || 25;
+        const chunkBytes = chunkMB * 1000 * 1000;
 
-    if (!isFinite(duration) || duration <= 0) {
-        showToast('⚠ Could not determine video duration.'); return;
+        // Get duration via HTML5 video element (needed only for size mode)
+        let duration;
+        try { duration = await getVideoDuration(currentFile); }
+        catch { showToast('⚠ Could not read video metadata.'); return; }
+        if (!isFinite(duration) || duration <= 0) { showToast('⚠ Could not determine video duration.'); return; }
+
+        // Target 82% → keyframe-boundary overshoot stays under the limit
+        const targetBytes = chunkBytes * 0.82;
+        timePerChunk = (targetBytes / currentFile.size) * duration;
+        chunkLabel = `${chunkMB} MB`;
     }
+    // ─────────────────────────────────────────────────────────────────────────
 
-    // ── KEY FIX: target 82% so keyframe-boundary overshoot never exceeds limit ──
-    // FFmpeg -c copy can only cut at keyframe boundaries, so actual chunk size is
-    // slightly larger than the target (by up to one GOP worth of data). Targeting
-    // 82% gives ~18% headroom which covers typical H.264/H.265 overshoot without
-    // creating tiny leftover fragments from re-splitting.
-    const targetBytes  = chunkBytes * 0.82;
-    const timePerChunk = (targetBytes / currentFile.size) * duration;
 
     // UI: busy
     loaderEl.style.display      = 'inline-block';
@@ -597,7 +677,7 @@ async function splitVideo() {
         splitText.textContent  = '✂ Split Again';
         splitBtn.disabled      = false;
 
-        renderChunks(chunkMB);
+        renderChunks(chunkLabel);
         showToast(`✔ Split into ${chunkBlobs.length} piece${chunkBlobs.length !== 1 ? 's' : ''}`);
 
     } catch (err) {
@@ -611,8 +691,8 @@ async function splitVideo() {
 }
 
 // ─── Render chunk list ────────────────────────────────────────────────────────
-function renderChunks(chunkMB) {
-    chunksTitle.textContent = `${chunkBlobs.length} chunk${chunkBlobs.length !== 1 ? 's' : ''} — each up to ${chunkMB} MB`;
+function renderChunks(chunkLabel) {
+    chunksTitle.textContent = `${chunkBlobs.length} chunk${chunkBlobs.length !== 1 ? 's' : ''} — each up to ${chunkLabel}`;
     chunksList.innerHTML = '';
 
     chunkBlobs.forEach(({ blob, name }) => {
