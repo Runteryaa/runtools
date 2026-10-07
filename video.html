@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Bölücü</title>
     <!-- Tüm bağımlılıklar güvenli CDN üzerinden yüklenecek -->
-    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
     <style>
         /* Modern Dark Theme Styling - Tamamen RunClipboard ile aynı */
         body {
@@ -349,9 +349,15 @@
 
         // Güvenlik (CORS) hatalarını aşmak için dosyaları yerel belleğe (Blob) indiren fonksiyon
         async function getBlobURL(url, mimeType) {
-            const resp = await fetch(url);
-            const blob = await resp.blob();
-            return URL.createObjectURL(new Blob([blob], { type: mimeType }));
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error(`İndirme başarısız: ${url} (HTTP ${resp.status})`);
+                const blob = await resp.blob();
+                return URL.createObjectURL(new Blob([blob], { type: mimeType }));
+            } catch (error) {
+                console.error("Blob URL Hatası:", error);
+                throw error;
+            }
         }
 
         async function initFFmpeg() {
@@ -366,11 +372,10 @@
                     progressText.innerText = `İşleniyor: %${pct}`;
                 });
 
-                // CORS ve Worker hatalarını tamamen yok etmek için tüm çekirdek dosyaları 
-                // CDN'den çekip doğrudan tarayıcı belleğinde (Blob) çalıştırıyoruz.
-                // Böylece GitHub veya Cloudflare Pages'te %100 sorunsuz çalışır.
-                const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-                const ffmpegURL = 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd';
+                // unpkg yerine çok daha stabil olan jsdelivr kullanıyoruz.
+                // CORS hatalarını %100 önlemek için Blob URL'ye çeviriyoruz.
+                const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+                const ffmpegURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd';
 
                 const coreURL = await getBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript');
                 const wasmURL = await getBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm');
