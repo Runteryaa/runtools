@@ -1,0 +1,498 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RunClipboard</title>
+    <style>
+        /* Modern Dark Theme Styling */
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden; 
+        }
+
+        .container {
+            text-align: center;
+            max-width: 800px;
+            width: 100%; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+
+        .placeholder {
+            border: 2px dashed #444;
+            padding: 40px 20px;
+            border-radius: 10px;
+            color: #888;
+            margin-bottom: 20px;
+            transition: all 0.2s ease;
+            width: 80%;
+            cursor: pointer;
+            background-color: rgba(255,255,255,0.02);
+        }
+
+        .placeholder:hover {
+            border-color: #666;
+            background-color: rgba(255,255,255,0.05);
+        }
+
+        .placeholder.drag-over {
+            border-color: #2563eb;
+            background-color: rgba(37, 99, 235, 0.1);
+            color: #fff;
+            transform: scale(1.02);
+        }
+
+        #preview-container {
+            display: none;
+            width: fit-content; 
+            max-width: 100%;
+            max-height: 60vh; 
+            margin: 0 auto 20px auto;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            transition: border 0.2s ease; 
+            border: 2px solid transparent; 
+        }
+
+        #preview-container.drag-over {
+            border-color: #2563eb;
+            transform: scale(1.01);
+        }
+
+        #image-display {
+            max-width: 100%;
+            max-height: 60vh;
+            display: block;
+            /* NEW: Make it obvious it's clickable */
+            cursor: pointer; 
+        }
+        /* Visual hint on hover */
+        #image-display:hover {
+            opacity: 0.9;
+        }
+
+        /* --- CUSTOM FULLSCREEN OVERLAY STYLES --- */
+        #fullscreen-overlay {
+            display: none; 
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.95);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        #fullscreen-overlay.active { display: flex; }
+
+        #fullscreen-image {
+            width: 95%;
+            height: 95%;
+            object-fit: contain; 
+        }
+
+        #close-btn {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            color: #fff;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 10000;
+            line-height: 1;
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap; 
+            width: 100%;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-fullscreen { background-color: #4b5563; color: white; }
+        .btn-fullscreen:hover { background-color: #374151; }
+
+        .btn-copy-img { background-color: #10b981; color: white; }
+        .btn-copy-img:hover { background-color: #059669; }
+
+        .btn-upload { background-color: #2563eb; color: white; }
+        .btn-upload:hover { background-color: #1d4ed8; }
+        
+        .btn-upload-success { background-color: #059669; color: white; }
+        .btn-upload-success:hover { background-color: #047857; }
+
+        .btn-remove {
+            background-color: #ef4444;
+            color: white;
+            padding: 14px 16px; 
+        }
+        .btn-remove:hover { background-color: #dc2626; }
+
+        /* Loader & Toast */
+        .loader {
+            display: none;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #fff;
+            border-bottom-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        #toast {
+            visibility: hidden;
+            min-width: 250px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 4px;
+            padding: 16px;
+            position: fixed;
+            z-index: 10001;
+            bottom: 30px;
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        #toast.show {
+            visibility: visible;
+            animation: fadein 0.5s, fadeout 0.5s 2.5s;
+        }
+        @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+        @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+    </style>
+</head>
+<body>
+
+    <div id="fullscreen-overlay" onclick="closeFullscreen()">
+        <span id="close-btn">&times;</span>
+        <img id="fullscreen-image" src="" alt="Fullscreen View">
+    </div>
+
+    <div class="container">
+        <input type="file" id="file-input" accept="image/*" style="display: none;">
+
+        <div id="paste-area" class="placeholder" onclick="document.getElementById('file-input').click()">
+            <h2>Paste, Drag or Click</h2>
+            <p>Ctrl+V, Drag & Drop or Tap</p>
+        </div>
+
+        <div id="preview-container">
+            <img id="image-display" src="" alt="Pasted Image" onclick="document.getElementById('file-input').click()" title="Click to replace image">
+        </div>
+
+        <div class="controls" id="controls" style="display: none;">
+            <button class="btn-remove" onclick="removeImage()" title="Remove Image">
+                x
+            </button>
+
+            <button class="btn-fullscreen" onclick="openFullscreen()">
+                ⛶ Fullscreen
+            </button>
+            
+            <button class="btn-copy-img" onclick="copyImageToClipboard()">
+                ⧉ Copy Image
+            </button>
+
+            <button class="btn-upload" id="upload-btn" onclick="uploadToImgBB()">
+                <div class="loader" id="loader"></div>
+                <span id="upload-text">⎘ Copy Link (Upload)</span>
+            </button>
+        </div>
+    </div>
+
+    <div id="toast">Link copied to clipboard!</div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const IMGBB_API_KEY = '35f4c84a5df5cae81a4a0b9011e091c9'; 
+        // ---------------------
+
+        const pasteArea = document.getElementById('paste-area');
+        const previewContainer = document.getElementById('preview-container');
+        const imgDisplay = document.getElementById('image-display');
+        const controls = document.getElementById('controls');
+        const fileInput = document.getElementById('file-input');
+        
+        const uploadBtn = document.getElementById('upload-btn');
+        const uploadText = document.getElementById('upload-text');
+        const loader = document.getElementById('loader');
+
+        const overlay = document.getElementById('fullscreen-overlay');
+        const fullscreenImg = document.getElementById('fullscreen-image');
+
+        let currentBlob = null;
+        let uploadedUrl = null; 
+        let copyPending = false; // FLAG FOR AUTO-COPY
+
+        // --- RESTORE ON LOAD ---
+        window.addEventListener('load', () => {
+            const savedImage = sessionStorage.getItem('saved-image-data');
+            if (savedImage) {
+                imgDisplay.src = savedImage;
+                fullscreenImg.src = savedImage;
+                currentBlob = dataURLtoBlob(savedImage);
+                showPreview();
+            }
+        });
+
+        // --- AUTO COPY ON FOCUS ---
+        // This listens for when you come back to the tab
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === 'visible' && copyPending && uploadedUrl) {
+                console.log("Tab focused: Executing pending copy");
+                copyTextToClipboard(uploadedUrl);
+                copyPending = false; // Reset flag
+            }
+        });
+
+        function dataURLtoBlob(dataurl) {
+            try {
+                var arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1],
+                    bstr = atob(arr[1]), n = bstr.length, u8arr = new Uint8Array(n);
+                while(n--){ u8arr[n] = bstr.charCodeAt(n); }
+                return new Blob([u8arr], {type:mime});
+            } catch(e) { return null; }
+        }
+
+        function resetUploadButton() {
+            uploadedUrl = null;
+            copyPending = false;
+            uploadText.textContent = "⎘ Copy Link (Upload)";
+            uploadBtn.className = "btn-upload"; 
+            loader.style.display = "none";
+        }
+
+        function removeImage() {
+            currentBlob = null;
+            imgDisplay.src = "";
+            fullscreenImg.src = "";
+            fileInput.value = ""; 
+            sessionStorage.removeItem('saved-image-data');
+            
+            resetUploadButton(); 
+
+            previewContainer.style.display = 'none';
+            controls.style.display = 'none';
+            pasteArea.style.display = 'block'; 
+        }
+
+        function processFile(file) {
+            if (!file || !file.type.startsWith('image/')) return;
+            
+            resetUploadButton(); 
+
+            currentBlob = file;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const result = e.target.result;
+                imgDisplay.src = result;
+                fullscreenImg.src = result;
+                try {
+                    sessionStorage.setItem('saved-image-data', result);
+                } catch (err) { console.log("Image too large to save."); }
+                showPreview();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // --- GLOBAL EVENT LISTENERS ---
+        document.addEventListener('paste', (event) => {
+            const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+            for (let item of items) {
+                if (item.type.indexOf('image') === 0) {
+                    processFile(item.getAsFile());
+                }
+            }
+        });
+
+        fileInput.addEventListener('change', (event) => {
+            if (event.target.files.length > 0) {
+                processFile(event.target.files[0]);
+            }
+        });
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            document.body.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            document.body.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight(e) { 
+            pasteArea.classList.add('drag-over'); 
+            previewContainer.classList.add('drag-over');
+        }
+        
+        function unhighlight(e) { 
+            pasteArea.classList.remove('drag-over'); 
+            previewContainer.classList.remove('drag-over');
+        }
+
+        document.body.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) {
+                processFile(files[0]);
+            }
+        }
+
+        function showPreview() {
+            pasteArea.style.display = 'none';
+            previewContainer.style.display = 'block';
+            controls.style.display = 'flex';
+        }
+
+        // --- UPLOAD LOGIC ---
+        async function uploadToImgBB() {
+            if (uploadedUrl) {
+                await copyTextToClipboard(uploadedUrl);
+                return;
+            }
+
+            if (!currentBlob) return;
+            if (IMGBB_API_KEY === 'YOUR_IMGBB_API_KEY') {
+                alert('Please edit the code and insert your ImgBB API Key!');
+                return;
+            }
+
+            uploadText.textContent = "Uploading...";
+            loader.style.display = "inline-block";
+
+            const formData = new FormData();
+            formData.append('image', currentBlob);
+
+            try {
+                const response = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    uploadedUrl = data.data.url;
+                    
+                    // Success State
+                    uploadBtn.className = "btn-upload-success"; 
+                    uploadText.textContent = "✔ Link Created! (Copy)";
+                    loader.style.display = "none";
+                    
+                    // --- SMART COPY LOGIC ---
+                    if (document.visibilityState === 'visible') {
+                        // User is on the tab -> Copy immediately
+                        await copyTextToClipboard(uploadedUrl);
+                    } else {
+                        // User is on another tab -> Wait until they come back
+                        copyPending = true;
+                        console.log("Upload done in background. Waiting for focus to copy...");
+                        // Also show a browser notification if we could (optional, not implemented here to keep it simple)
+                        document.title = "✔ Upload Complete!"; // Change tab title
+                    }
+                    
+                } else {
+                    alert("Upload failed: " + (data.error ? data.error.message : "Unknown error"));
+                    resetUploadButton();
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                alert("Upload failed. Check console for details.");
+                resetUploadButton();
+            }
+        }
+
+        async function copyTextToClipboard(text) {
+            try {
+                // Try to focus window first (helps with some browsers)
+                window.focus(); 
+                await navigator.clipboard.writeText(text);
+                showToast("Link Copied: " + text);
+                document.title = "RunClipboard"; // Reset title if it was changed
+            } catch (clipboardError) {
+                prompt("Upload successful! Copy your link below:", text);
+            }
+        }
+
+        async function copyImageToClipboard() {
+            if (!currentBlob) return;
+            try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = imgDisplay.naturalWidth;
+                canvas.height = imgDisplay.naturalHeight;
+                ctx.drawImage(imgDisplay, 0, 0);
+
+                canvas.toBlob(async (pngBlob) => {
+                    try {
+                        await navigator.clipboard.write([
+                            new ClipboardItem({ 'image/png': pngBlob })
+                        ]);
+                        showToast("Image copied to clipboard!");
+                    } catch (err) {
+                        alert("Failed to copy. Browser may not support this.");
+                    }
+                }, 'image/png');
+            } catch (err) { alert("Error processing image."); }
+        }
+
+        function openFullscreen() { overlay.classList.add('active'); }
+        function closeFullscreen() { overlay.classList.remove('active'); }
+        document.addEventListener('keydown', (e) => {
+            if (e.key === "Escape" && overlay.classList.contains('active')) closeFullscreen();
+        });
+
+        function showToast(message) {
+            const toast = document.getElementById("toast");
+            toast.textContent = message;
+            toast.className = "show";
+            setTimeout(function(){ toast.className = toast.className.replace("show", ""); }, 3000);
+        }
+    </script>
+
+</body>
+</html>

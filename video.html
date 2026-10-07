@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Bölücü (25MB)</title>
+    
+    <!-- FFmpeg.wasm v0.12 Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    
+    <style>
+        /* Modern Dark Theme Styling - Matching the RunClipboard aesthetic */
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden; 
+        }
+
+        /* Warning banner for file:// protocol */
+        #warning-banner {
+            display: none;
+            background-color: #ef4444;
+            color: white;
+            width: 100%;
+            text-align: center;
+            padding: 15px;
+            font-weight: bold;
+            position: absolute;
+            top: 0;
+            left: 0;
+            box-sizing: border-box;
+            z-index: 1000;
+        }
+
+        .container {
+            text-align: center;
+            max-width: 800px;
+            width: 100%; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px;
+            box-sizing: border-box;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        /* The minimalist Drop Zone */
+        .placeholder {
+            border: 2px dashed #444;
+            padding: 40px 20px;
+            border-radius: 10px;
+            color: #888;
+            margin-bottom: 20px;
+            transition: all 0.2s ease;
+            width: 80%;
+            cursor: pointer;
+            background-color: rgba(255,255,255,0.02);
+        }
+
+        .placeholder:hover {
+            border-color: #666;
+            background-color: rgba(255,255,255,0.05);
+        }
+
+        .placeholder.drag-over {
+            border-color: #2563eb;
+            background-color: rgba(37, 99, 235, 0.1);
+            color: #fff;
+            transform: scale(1.02);
+        }
+
+        /* Preview & Details Box */
+        #preview-container {
+            display: none;
+            width: 80%; 
+            margin: 0 auto 20px auto;
+            border-radius: 8px;
+            background-color: rgba(255,255,255,0.03);
+            padding: 20px;
+            box-sizing: border-box;
+            border: 1px solid #333;
+            text-align: left;
+        }
+
+        .video-details h3 { margin: 0 0 5px 0; font-size: 1.1rem; word-break: break-all; color: #fff;}
+        .video-details p { margin: 0; color: #888; font-size: 0.85rem; }
+
+        .settings {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        select {
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        /* Controls */
+        .controls {
+            display: none;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap; 
+            width: 80%;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s, transform 0.1s;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        button:active { transform: scale(0.98); }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .btn-upload { background-color: #2563eb; color: white; flex-grow: 1; }
+        .btn-upload:hover:not(:disabled) { background-color: #1d4ed8; }
+        
+        .btn-success { background-color: #10b981; color: white; flex-grow: 1; display: none; }
+        .btn-success:hover:not(:disabled) { background-color: #059669; }
+
+        .btn-remove { background-color: #ef4444; color: white; padding: 12px 16px; }
+        .btn-remove:hover { background-color: #dc2626; }
+
+        /* Loader & Progress */
+        .loader {
+            display: none;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #fff;
+            border-bottom-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        #progress-wrapper {
+            display: none;
+            width: 100%;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #333;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 6px;
+            background-color: #333;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        #progress-bar { height: 100%; width: 0%; background-color: #2563eb; transition: width 0.3s ease; }
+        #progress-text { font-size: 0.85rem; color: #aaa; margin-top: 5px; }
+
+        /* Parts List (Results) */
+        #parts-list {
+            margin-top: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+            width: 100%;
+            display: none;
+        }
+        
+        .part-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0,0,0,0.2);
+            padding: 8px 12px;
+            margin-bottom: 6px;
+            border-radius: 4px;
+            border: 1px solid #333;
+        }
+        .part-item span { font-size: 0.85rem; color: #ddd; }
+        .part-item button { padding: 4px 10px; font-size: 0.8rem; background-color: #4b5563; }
+        .part-item button:hover { background-color: #374151; }
+
+        /* Toast */
+        #toast {
+            visibility: hidden;
+            min-width: 250px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 4px;
+            padding: 16px;
+            position: fixed;
+            z-index: 10001;
+            bottom: 30px;
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        #toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
+        @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+        @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+    </style>
+</head>
+<body>
+
+    <div id="warning-banner">
+        ⚠️ Warning: You opened this file locally (file:///). FFmpeg requires a local server.
+    </div>
+
+    <div class="container">
+        <input type="file" id="file-input" accept="video/*" style="display: none;">
+
+        <div id="paste-area" class="placeholder" onclick="document.getElementById('file-input').click()">
+            <h2>Paste, Drag or Click</h2>
+            <p>Upload a video to split it into chunks</p>
+        </div>
+
+        <div id="preview-container">
+            <div class="video-details">
+                <h3 id="video-name">video.mp4</h3>
+                <p id="video-info">Size: -- MB | Duration: --:--</p>
+            </div>
+
+            <div class="settings">
+                <span style="font-size: 0.9rem; color: #aaa;">Target Size:</span>
+                <select id="chunk-size">
+                    <option value="25" selected>25 MB (Standard)</option>
+                    <option value="10">10 MB</option>
+                    <option value="8">8 MB (Discord)</option>
+                    <option value="50">50 MB</option>
+                </select>
+            </div>
+
+            <div id="progress-wrapper">
+                <div id="progress-text">Processing: 0%</div>
+                <div class="progress-bar-container">
+                    <div id="progress-bar"></div>
+                </div>
+            </div>
+
+            <div id="parts-list">
+                <!-- Chunks will be injected here -->
+            </div>
+        </div>
+
+        <div class="controls" id="controls">
+            <button class="btn-remove" onclick="removeVideo()" title="Remove Video">x</button>
+            <button class="btn-upload" id="split-btn" onclick="startSplitting()">
+                <div class="loader" id="loader"></div>
+                <span id="split-text">✂ Split Video</span>
+            </button>
+            <button class="btn-success" id="download-all-btn" onclick="downloadAll()">
+                ⧉ Download All
+            </button>
+        </div>
+    </div>
+
+    <div id="toast">Notification</div>
+
+    <script>
+        if (window.location.protocol === 'file:') {
+            document.getElementById('warning-banner').style.display = 'block';
+        }
+
+        let ffmpeg = null;
+        let selectedFile = null;
+        let videoDuration = 0;
+        let generatedParts = [];
+
+        const fileInput = document.getElementById('file-input');
+        const pasteArea = document.getElementById('paste-area');
+        const previewContainer = document.getElementById('preview-container');
+        const controls = document.getElementById('controls');
+        
+        const videoNameEl = document.getElementById('video-name');
+        const videoInfoEl = document.getElementById('video-info');
+        const chunkSizeSelect = document.getElementById('chunk-size');
+        
+        const splitBtn = document.getElementById('split-btn');
+        const splitText = document.getElementById('split-text');
+        const loader = document.getElementById('loader');
+        const downloadAllBtn = document.getElementById('download-all-btn');
+        
+        const progressWrapper = document.getElementById('progress-wrapper');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const partsList = document.getElementById('parts-list');
+
+        // Drag and Drop Logic
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            document.body.addEventListener(eventName, () => pasteArea.classList.add('drag-over'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            document.body.addEventListener(eventName, () => pasteArea.classList.remove('drag-over'), false);
+        });
+
+        document.body.addEventListener('drop', (e) => {
+            if (e.dataTransfer.files.length > 0) processFile(e.dataTransfer.files[0]);
+        }, false);
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) processFile(e.target.files[0]);
+        });
+
+        function processFile(file) {
+            if (!file || !file.type.startsWith('video/')) {
+                showToast("Please select a valid video file!");
+                return;
+            }
+            
+            selectedFile = file;
+            videoNameEl.textContent = file.name;
+            
+            // Extract metadata for estimations
+            const videoElem = document.createElement('video');
+            videoElem.preload = 'metadata';
+            videoElem.src = URL.createObjectURL(file);
+            
+            videoElem.onloadedmetadata = () => {
+                window.URL.revokeObjectURL(videoElem.src);
+                videoDuration = videoElem.duration;
+                updateFileInfo();
+            };
+
+            videoElem.onerror = () => {
+                videoDuration = 60; // Fallback estimate
+                updateFileInfo();
+            };
+
+            // Switch UI views
+            pasteArea.style.display = 'none';
+            previewContainer.style.display = 'block';
+            controls.style.display = 'flex';
+            
+            // Reset states in case a previous video was loaded
+            progressWrapper.style.display = 'none';
+            partsList.style.display = 'none';
+            downloadAllBtn.style.display = 'none';
+            splitBtn.style.display = 'flex';
+            splitBtn.disabled = false;
+        }
+
+        function updateFileInfo() {
+            const sizeMB = (selectedFile.size / (1024 * 1024)).toFixed(1);
+            const mins = Math.floor(videoDuration / 60);
+            const secs = Math.floor(videoDuration % 60);
+            const targetSizeMB = parseFloat(chunkSizeSelect.value);
+            const estParts = Math.max(1, Math.ceil(selectedFile.size / (targetSizeMB * 1024 * 1024)));
+
+            videoInfoEl.textContent = `Size: ${sizeMB} MB | Duration: ${mins}:${secs < 10 ? '0' : ''}${secs} | Est. Parts: ~${estParts}`;
+        }
+
+        chunkSizeSelect.addEventListener('change', () => {
+            if (selectedFile) updateFileInfo();
+        });
+
+        function removeVideo() {
+            selectedFile = null;
+            videoDuration = 0;
+            fileInput.value = "";
+            generatedParts = [];
+            
+            previewContainer.style.display = 'none';
+            controls.style.display = 'none';
+            pasteArea.style.display = 'block';
+            
+            splitText.textContent = "✂ Split Video";
+            loader.style.display = "none";
+            splitBtn.disabled = false;
+            splitBtn.style.display = 'flex';
+            downloadAllBtn.style.display = 'none';
+        }
+
+        // Native Helper to safely load worker files locally and bypass CORS
+        async function toBlobURLWrapper(url, mimeType) {
+            try {
+                const resp = await fetch(url);
+                const buffer = await resp.arrayBuffer();
+                const blob = new Blob([buffer], { type: mimeType });
+                return URL.createObjectURL(blob);
+            } catch (e) {
+                console.error("Failed to load Blob URL:", e);
+                return url; 
+            }
+        }
+
+        async function initFFmpeg() {
+            if (ffmpeg && ffmpeg.loaded) return true;
+            
+            try {
+                const { FFmpeg } = window.FFmpegWASM || window;
+
+                if (!FFmpeg) throw new Error("FFmpeg engine not found.");
+                
+                ffmpeg = new FFmpeg();
+
+                // Attach progress listener
+                ffmpeg.on('progress', ({ progress }) => {
+                    const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
+                    progressBar.style.width = pct + '%';
+                    progressText.textContent = `Processing: ${pct}%`;
+                });
+
+                const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+                const ffmpegURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd';
+
+                // THE FIX: Use native fetch to convert scripts to local blobs
+                progressText.textContent = "Loading engine securely...";
+                const coreURL = await toBlobURLWrapper(`${baseURL}/ffmpeg-core.js`, 'text/javascript');
+                const wasmURL = await toBlobURLWrapper(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm');
+                const classWorkerURL = await toBlobURLWrapper(`${ffmpegURL}/814.ffmpeg.js`, 'text/javascript');
+
+                await ffmpeg.load({
+                    coreURL,
+                    wasmURL,
+                    classWorkerURL
+                });
+                
+                return true;
+            } catch (err) {
+                console.error("FFmpeg Init Error:", err);
+                showToast("Failed to initialize engine. Check console.");
+                return false;
+            }
+        }
+
+        async function startSplitting() {
+            if (!selectedFile) return;
+
+            splitBtn.disabled = true;
+            splitText.textContent = "Starting Engine...";
+            loader.style.display = "inline-block";
+            
+            progressWrapper.style.display = 'block';
+            progressBar.style.width = '0%';
+            partsList.style.display = 'none';
+
+            // Wait for FFmpeg safely
+            const loaded = await initFFmpeg();
+            if (!loaded) {
+                splitBtn.disabled = false;
+                splitText.textContent = "Retry Split";
+                loader.style.display = "none";
+                return;
+            }
+
+            try {
+                const targetSizeMB = parseFloat(chunkSizeSelect.value);
+                const fileSize = selectedFile.size;
+                const targetBytes = targetSizeMB * 1024 * 1024;
+                
+                // Segment timing estimation
+                const effectiveDuration = videoDuration > 0 ? videoDuration : 60;
+                let segmentTime = Math.max(2, (targetBytes / fileSize) * effectiveDuration) * 0.90; 
+
+                progressText.textContent = "Loading file into memory...";
+                
+                // Read file purely using native browser API instead of external utilities
+                const arrayBuffer = await selectedFile.arrayBuffer();
+                const fileData = new Uint8Array(arrayBuffer);
+                
+                const inputName = 'input.mp4';
+                await ffmpeg.writeFile(inputName, fileData);
+
+                progressText.textContent = "Segmenting video...";
+                
+                await ffmpeg.exec([
+                    '-i', inputName,
+                    '-c', 'copy',
+                    '-f', 'segment',
+                    '-segment_time', segmentTime.toFixed(2),
+                    '-reset_timestamps', '1',
+                    'output_chunk_%03d.mp4'
+                ]);
+
+                progressText.textContent = "Collecting outputs...";
+
+                const filesList = await ffmpeg.listDir('/');
+                generatedParts = [];
+                let pIndex = 1;
+
+                for (const item of filesList) {
+                    if (item.name.startsWith('output_chunk_') && item.name.endsWith('.mp4')) {
+                        const chunkData = await ffmpeg.readFile(item.name);
+                        const blob = new Blob([chunkData.buffer], { type: 'video/mp4' });
+                        
+                        generatedParts.push({
+                            name: `part_${pIndex}_${selectedFile.name}`,
+                            blob: blob,
+                            size: (blob.size / (1024 * 1024)).toFixed(2)
+                        });
+                        
+                        await ffmpeg.deleteFile(item.name);
+                        pIndex++;
+                    }
+                }
+
+                await ffmpeg.deleteFile(inputName);
+
+                if (generatedParts.length === 0) throw new Error("No output generated.");
+
+                showResults();
+
+            } catch (err) {
+                console.error(err);
+                progressText.textContent = "Error occurred!";
+                showToast("Processing failed. The video might be too large.");
+                splitBtn.disabled = false;
+                splitText.textContent = "Retry Split";
+                loader.style.display = "none";
+            }
+        }
+
+        function showResults() {
+            splitBtn.style.display = 'none';
+            downloadAllBtn.style.display = 'flex';
+            progressWrapper.style.display = 'none';
+            partsList.style.display = 'block';
+            
+            partsList.innerHTML = '';
+            generatedParts.forEach((part, index) => {
+                const div = document.createElement('div');
+                div.className = 'part-item';
+                div.innerHTML = `
+                    <span>#${index + 1} - ${part.size} MB</span>
+                    <button type="button" onclick="downloadSingle(${index})">Download</button>
+                `;
+                partsList.appendChild(div);
+            });
+            showToast("Video successfully split!");
+        }
+
+        window.downloadSingle = function(index) {
+            if (generatedParts[index]) triggerDownload(generatedParts[index].blob, generatedParts[index].name);
+        };
+
+        function downloadAll() {
+            generatedParts.forEach((part, index) => {
+                setTimeout(() => triggerDownload(part.blob, part.name), index * 800);
+            });
+        }
+
+        function triggerDownload(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { document.body.removeChild(a); window.URL.revokeObjectURL(url); }, 1000);
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById("toast");
+            toast.textContent = message;
+            toast.className = "show";
+            setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 3000);
+        }
+    </script>
+</body>
+</html>
