@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Bölücü</title>
     
-    <!-- Ana kütüphaneyi CDN'den alıyoruz -->
-    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <!-- ESKİ, STABİL VE İŞÇİ (WORKER) KULLANMAYAN EFSANE SÜRÜM -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.9.4/dist/ffmpeg.min.js"></script>
     
     <style>
         /* Modern Dark Theme Styling - RunClipboard Arayüzü */
@@ -207,9 +207,7 @@
     <div id="toast"></div>
 
     <script>
-        const { FFmpeg } = window.FFmpegWASM;
-        let ffmpeg = new FFmpeg();
-        
+        let ffmpeg = null;
         let selectedFile = null;
         let videoDuration = 0;
 
@@ -306,45 +304,10 @@
             splitText.textContent = "Videoyu Böl";
         }
 
-        async function initFFmpeg() {
-            if (ffmpeg.loaded) return true;
-            
-            try {
-                ffmpeg.on('progress', ({ progress }) => {
-                    const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
-                    progressText.innerText = `İşleniyor: %${pct}`;
-                });
-
-                progressText.innerText = "Motor yükleniyor... Lütfen bekleyin.";
-
-                // Cloudflare/GitHub CORS hatalarını aşan NİHAİ KESİN ÇÖZÜM:
-                const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-                const ffmpegURL = 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd';
-
-                // 1. Worker dosyasını CDN'den yazı olarak çekip sahte bir yerel dosya yaratıyoruz (Güvenlik engeli kalkar)
-                const workerResp = await fetch(`${ffmpegURL}/814.ffmpeg.js`);
-                const workerText = await workerResp.text();
-                const workerBlob = new Blob([workerText], { type: 'text/javascript' });
-                const workerURL = URL.createObjectURL(workerBlob);
-
-                // 2. Çekirdek dosyalara TAM ADRES (Absolute URL) veriyoruz ki sanal dosya kaybolmasın (import hatası kalkar)
-                await ffmpeg.load({
-                    coreURL: `${baseURL}/ffmpeg-core.js`,
-                    wasmURL: `${baseURL}/ffmpeg-core.wasm`,
-                    classWorkerURL: workerURL
-                });
-                
-                return true;
-            } catch (err) {
-                console.error("FFmpeg Init Hatası:", err);
-                showToast("Yükleme hatası. Lütfen sayfayı yenileyin.");
-                return false;
-            }
-        }
-
         async function startSplitting() {
             if (!selectedFile) return;
 
+            // UI'ı kilitle
             splitBtn.disabled = true;
             btnRemove.disabled = true;
             chunkSizeSelect.disabled = true;
@@ -354,22 +317,37 @@
             resultsContainer.innerHTML = '';
             progressText.style.display = 'block';
 
-            const success = await initFFmpeg();
-            if (!success) {
-                resetBtn();
-                return;
-            }
-
             try {
+                // Eğer daha önce yüklenmediyse, v0.9.4 efsane motorunu başlat
+                if (!ffmpeg) {
+                    progressText.innerText = "Motor yükleniyor... Lütfen bekleyin.";
+                    const { createFFmpeg } = FFmpeg;
+                    
+                    // Worker KULLANMAYAN, dümdüz ana dizinden yüklenen eski core (0.8.5)
+                    ffmpeg = createFFmpeg({
+                        corePath: 'https://unpkg.com/@ffmpeg/core@0.8.5/dist/ffmpeg-core.js',
+                        log: true
+                    });
+
+                    ffmpeg.setProgress(({ ratio }) => {
+                        const pct = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+                        progressText.innerText = `İşleniyor: %${pct}`;
+                    });
+
+                    await ffmpeg.load();
+                }
+
                 splitText.textContent = "Bölünüyor...";
                 progressText.innerText = "Video belleğe alınıyor...";
 
+                const { fetchFile } = FFmpeg;
                 const ext = selectedFile.name.split('.').pop() || 'mp4';
                 const inputName = 'input_video.' + ext;
                 
-                const arrayBuffer = await selectedFile.arrayBuffer();
-                await ffmpeg.writeFile(inputName, new Uint8Array(arrayBuffer));
+                // Videoyu sanal sisteme yaz
+                ffmpeg.FS('writeFile', inputName, await fetchFile(selectedFile));
 
+                // Bölme hesaplamaları
                 const targetMB = parseFloat(chunkSizeSelect.value);
                 const targetBytes = targetMB * 1024 * 1024;
                 const effectiveDuration = videoDuration > 0 ? videoDuration : 60;
@@ -380,27 +358,30 @@
 
                 progressText.innerText = "Video parçalanıyor...";
 
-                await ffmpeg.exec([
+                // Bölme işlemini çalıştır
+                await ffmpeg.run(
                     '-i', inputName,
                     '-c', 'copy',
                     '-f', 'segment',
                     '-segment_time', estimatedChunkDuration.toFixed(2),
                     '-reset_timestamps', '1',
                     `output_%03d.${ext}`
-                ]);
+                );
 
                 progressText.innerText = "Dosyalar toplanıyor...";
 
-                const files = await ffmpeg.listDir('/');
-                const generatedChunks = files.filter(f => f.name.startsWith('output_') && f.name.endsWith('.' + ext));
+                // Çıktı dosyalarını bul
+                const files = ffmpeg.FS('readdir', '/');
+                const generatedChunks = files.filter(f => f.startsWith('output_') && f.endsWith('.' + ext));
 
                 if (generatedChunks.length === 0) throw new Error("Parçalama çıktısı alınamadı.");
 
                 resultsContainer.style.display = 'flex';
                 
+                // İndirme butonlarını oluştur
                 for (let i = 0; i < generatedChunks.length; i++) {
-                    const chunkName = generatedChunks[i].name;
-                    const chunkData = await ffmpeg.readFile(chunkName);
+                    const chunkName = generatedChunks[i];
+                    const chunkData = ffmpeg.FS('readFile', chunkName);
                     const chunkBlob = new Blob([chunkData.buffer], { type: `video/${ext}` });
                     const chunkSizeMB = (chunkBlob.size / (1024 * 1024)).toFixed(1);
                     
@@ -423,10 +404,13 @@
                     };
                     
                     resultsContainer.appendChild(btn);
-                    await ffmpeg.deleteFile(chunkName); 
+                    
+                    // İş bitince parçayı bellekten temizle
+                    ffmpeg.FS('unlink', chunkName); 
                 }
 
-                await ffmpeg.deleteFile(inputName);
+                // Ana dosyayı bellekten temizle
+                ffmpeg.FS('unlink', inputName);
                 
                 progressText.innerText = "İşlem Tamamlandı!";
                 showToast(`Başarılı: ${generatedChunks.length} parça oluşturuldu!`);
@@ -434,7 +418,7 @@
                 
             } catch (err) {
                 console.error("İşlem Hatası:", err);
-                showToast("Bölme sırasında hata oluştu. Video desteklenmiyor olabilir.");
+                showToast("Bölme sırasında hata oluştu. Video çok büyük olabilir.");
                 splitText.textContent = "Hata! Tekrar Dene";
             } finally {
                 splitBtn.disabled = false;
