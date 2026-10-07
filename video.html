@@ -307,14 +307,16 @@
 
 <div id="toast"></div>
 
-<!-- ffmpeg.wasm UMD -->
-<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+<!-- ffmpeg.wasm 0.11.x — Worker is created inline as blob URL, no cross-origin issues -->
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.0/dist/ffmpeg.min.js"></script>
 <script>
+const { createFFmpeg, fetchFile } = FFmpeg;
+
 // ─── State ───────────────────────────────────────────────────────────────────
 let currentFile = null;
-let chunkBlobs  = [];   // { blob, name }[]
+let chunkBlobs  = [];
 let ffmpegReady = false;
-let ffmpeg      = null;
+let ff          = null;
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 const dropArea      = document.getElementById('drop-area');
@@ -336,43 +338,36 @@ const chunksTitle   = document.getElementById('chunks-title');
 const chunksList    = document.getElementById('chunks-list');
 const dlAllBtn      = document.getElementById('dl-all-btn');
 
-// ─── FFmpeg loader ────────────────────────────────────────────────────────────
+// ─── FFmpeg init ──────────────────────────────────────────────────────────────
 async function initFFmpeg() {
-    setFFmpegStatus('loading', '⏳ Loading FFmpeg engine (first time may take ~10s)…');
+    setFFmpegStatus('loading', '⏳ Loading FFmpeg engine (first time ~10s)…');
     progressWrap.style.display = 'block';
-    progressLbl.textContent = 'Downloading FFmpeg WebAssembly…';
-    progressBar.style.width = '0%';
+    progressBar.style.width    = '0%';
+    progressLbl.textContent    = 'Downloading FFmpeg core…';
 
     try {
-        const { FFmpeg } = FFmpegWASM;
-        ffmpeg = new FFmpeg();
-
-        ffmpeg.on('log', ({ message }) => {
-            // uncomment for debug: console.log('[ff]', message);
+        ff = createFFmpeg({
+            // unpkg serves with proper CORS headers; 0.11.x loads core inside its inline Worker
+            corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+            log: false,
+            progress: ({ ratio }) => {
+                if (ratio >= 0) {
+                    const pct = 30 + Math.round(Math.min(ratio, 1) * 60);
+                    progressBar.style.width  = pct + '%';
+                    progressLbl.textContent  = `Splitting… ${Math.round(Math.min(ratio, 1) * 100)}%`;
+                }
+            }
         });
 
-        const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+        progressBar.style.width = '40%';
+        progressLbl.textContent = 'Initialising WebAssembly…';
 
-        // Download core JS + WASM as blob URLs (bypasses MIME-type issues on local files)
-        progressLbl.textContent = 'Downloading ffmpeg-core.js…';
-        progressBar.style.width = '20%';
-        const coreURL = await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript');
-
-        progressLbl.textContent = 'Downloading ffmpeg-core.wasm (~30 MB)…';
-        progressBar.style.width = '50%';
-        const wasmURL = await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm');
-
-        progressLbl.textContent = 'Initialising…';
-        progressBar.style.width = '85%';
-
-        await ffmpeg.load({ coreURL, wasmURL });
+        await ff.load();
 
         progressBar.style.width = '100%';
         progressLbl.textContent = '✔ FFmpeg ready';
         ffmpegReady = true;
         setFFmpegStatus('ready', '✔ FFmpeg engine loaded — ready to split');
-
-        // Hide progress after a moment
         setTimeout(() => { progressWrap.style.display = 'none'; }, 1500);
 
     } catch (err) {
@@ -384,16 +379,8 @@ async function initFFmpeg() {
 
 function setFFmpegStatus(type, msg) {
     ffmpegStatus.style.display = 'block';
-    ffmpegStatus.className = type;
-    ffmpegStatus.textContent = msg;
-}
-
-// Fetch URL and return an object-URL blob (needed for local file:// origins)
-async function toBlobURL(url, mimeType) {
-    const res  = await fetch(url);
-    const buf  = await res.arrayBuffer();
-    const blob = new Blob([buf], { type: mimeType });
-    return URL.createObjectURL(blob);
+    ffmpegStatus.className     = type;
+    ffmpegStatus.textContent   = msg;
 }
 
 // ─── Drag & Drop ─────────────────────────────────────────────────────────────
@@ -422,143 +409,115 @@ function handleFile(file) {
     currentFile = file;
     chunkBlobs  = [];
 
-    // Reset UI
-    chunksList.innerHTML = '';
+    chunksList.innerHTML        = '';
     chunksSection.style.display = 'none';
-    dlAllBtn.style.display = 'none';
-    splitText.textContent = '✂ Split Video';
-    loaderEl.style.display = 'none';
-    splitBtn.disabled = false;
+    dlAllBtn.style.display      = 'none';
+    splitText.textContent       = '✂ Split Video';
+    loaderEl.style.display      = 'none';
+    splitBtn.disabled           = false;
 
     fileNameEl.textContent = file.name;
     fileMetaEl.textContent = `${formatBytes(file.size)}  •  ${file.type || 'video'}`;
 
-    dropArea.style.display = 'none';
-    fileInfo.style.display = 'block';
+    dropArea.style.display    = 'none';
+    fileInfo.style.display    = 'block';
     settingsRow.style.display = 'flex';
-    controls.style.display = 'flex';
+    controls.style.display    = 'flex';
 
-    // Load ffmpeg lazily when first file is picked
-    if (!ffmpegReady && !ffmpeg) initFFmpeg();
+    // Lazy-load FFmpeg on first file pick
+    if (!ffmpegReady && !ff) initFFmpeg();
 }
 
 function removeFile() {
     currentFile = null;
     chunkBlobs  = [];
-    fileInput.value = '';
-
-    fileInfo.style.display    = 'none';
-    settingsRow.style.display = 'none';
-    controls.style.display    = 'none';
+    fileInput.value             = '';
+    fileInfo.style.display      = 'none';
+    settingsRow.style.display   = 'none';
+    controls.style.display      = 'none';
     chunksSection.style.display = 'none';
-    dlAllBtn.style.display    = 'none';
-    chunksList.innerHTML      = '';
-    dropArea.style.display    = 'block';
-
+    dlAllBtn.style.display      = 'none';
+    chunksList.innerHTML        = '';
+    dropArea.style.display      = 'block';
     if (!ffmpegReady) progressWrap.style.display = 'none';
 }
 
 // ─── Splitting ────────────────────────────────────────────────────────────────
 async function splitVideo() {
     if (!currentFile) return;
+    if (!ffmpegReady) { showToast('⏳ FFmpeg is still loading, please wait…'); return; }
 
-    if (!ffmpegReady) {
-        showToast('⏳ FFmpeg is still loading, please wait…');
-        return;
-    }
+    const chunkMB    = parseFloat(document.getElementById('chunk-size-input').value) || 25;
+    const chunkBytes = chunkMB * 1000 * 1000; // decimal MB → exact Windows display
 
-    const chunkMB   = parseFloat(document.getElementById('chunk-size-input').value) || 25;
-    const chunkBytes = chunkMB * 1000 * 1000; // decimal MB
-
-    // Get video duration via HTML5
+    // Get duration via HTML5 video element
     let duration;
-    try {
-        duration = await getVideoDuration(currentFile);
-    } catch {
-        showToast('⚠ Could not read video metadata.');
-        return;
-    }
+    try { duration = await getVideoDuration(currentFile); }
+    catch { showToast('⚠ Could not read video metadata.'); return; }
 
     if (!isFinite(duration) || duration <= 0) {
-        showToast('⚠ Could not determine video duration.');
-        return;
+        showToast('⚠ Could not determine video duration.'); return;
     }
 
-    // Calculate time per chunk proportionally to file size
+    // Time slice proportional to byte size
     const timePerChunk = (chunkBytes / currentFile.size) * duration;
 
-    // UI: loading
-    loaderEl.style.display  = 'inline-block';
-    splitText.textContent   = 'Splitting…';
-    splitBtn.disabled       = true;
-    dlAllBtn.style.display  = 'none';
-    chunksList.innerHTML    = '';
+    // UI: busy
+    loaderEl.style.display      = 'inline-block';
+    splitText.textContent       = 'Splitting…';
+    splitBtn.disabled           = true;
+    dlAllBtn.style.display      = 'none';
+    chunksList.innerHTML        = '';
     chunksSection.style.display = 'none';
-
-    progressWrap.style.display = 'block';
-    progressBar.style.width    = '0%';
-    progressLbl.textContent    = 'Writing video to FFmpeg filesystem…';
+    progressWrap.style.display  = 'block';
+    progressBar.style.width     = '0%';
+    progressLbl.textContent     = 'Reading video into memory…';
 
     try {
-        // Read file into memory
-        const fileData = await readFileAsUint8Array(currentFile);
-
         const ext       = getExtension(currentFile.name);
         const inputName = `input.${ext}`;
 
-        progressLbl.textContent = 'Writing file… (this may take a moment for large files)';
+        // fetchFile handles File → Uint8Array cleanly
         progressBar.style.width = '15%';
+        progressLbl.textContent = 'Writing to FFmpeg filesystem…';
+        ff.FS('writeFile', inputName, await fetchFile(currentFile));
 
-        await ffmpeg.writeFile(inputName, fileData);
-
-        progressLbl.textContent = 'Running FFmpeg split…';
         progressBar.style.width = '30%';
+        progressLbl.textContent = 'Running FFmpeg…';
 
-        // Progress from ffmpeg
-        ffmpeg.on('progress', ({ progress }) => {
-            const pct = 30 + Math.round(progress * 60);
-            progressBar.style.width = Math.min(pct, 90) + '%';
-            progressLbl.textContent = `Splitting… ${Math.round(progress * 100)}%`;
-        });
-
-        const outputPattern = `out%03d.${ext}`;
-
-        await ffmpeg.exec([
+        await ff.run(
             '-i',  inputName,
-            '-c',  'copy',          // no re-encoding — fast & lossless
+            '-c',  'copy',           // stream copy — lossless, no re-encode
             '-f',  'segment',
             '-segment_time', timePerChunk.toFixed(4),
             '-reset_timestamps', '1',
-            outputPattern
-        ]);
+            `out%03d.${ext}`
+        );
 
-        // Clean up input from FS
-        await ffmpeg.deleteFile(inputName);
+        // Remove input to free WASM memory
+        ff.FS('unlink', inputName);
 
-        progressLbl.textContent = 'Reading output chunks…';
         progressBar.style.width = '92%';
+        progressLbl.textContent = 'Reading output segments…';
 
-        // Read all output segments
+        // Collect all output files
         const base = currentFile.name.replace(/\.[^.]+$/, '');
         chunkBlobs = [];
 
         for (let i = 0; i < 9999; i++) {
             const outName = `out${String(i).padStart(3, '0')}.${ext}`;
             try {
-                const data = await ffmpeg.readFile(outName);
-                const blob = new Blob([data.buffer], { type: currentFile.type });
+                const data   = ff.FS('readFile', outName);
+                const blob   = new Blob([data.buffer], { type: currentFile.type });
                 const dlName = `${base}_part${String(i + 1).padStart(3, '0')}.${ext}`;
                 chunkBlobs.push({ blob, name: dlName });
-                await ffmpeg.deleteFile(outName);
-            } catch {
-                break; // No more files
-            }
+                ff.FS('unlink', outName);
+            } catch { break; }
         }
 
         progressBar.style.width = '100%';
         progressLbl.textContent = `✔ Done — ${chunkBlobs.length} chunk${chunkBlobs.length !== 1 ? 's' : ''} ready`;
 
-        // UI: done
         loaderEl.style.display = 'none';
         splitText.textContent  = '✂ Split Again';
         splitBtn.disabled      = false;
@@ -568,9 +527,9 @@ async function splitVideo() {
 
     } catch (err) {
         console.error(err);
-        loaderEl.style.display = 'none';
-        splitText.textContent  = '✂ Split Video';
-        splitBtn.disabled      = false;
+        loaderEl.style.display  = 'none';
+        splitText.textContent   = '✂ Split Video';
+        splitBtn.disabled       = false;
         progressLbl.textContent = '✖ Error: ' + err.message;
         showToast('✖ Split failed — see console for details.');
     }
@@ -585,24 +544,24 @@ function renderChunks(chunkMB) {
         const item = document.createElement('div');
         item.className = 'chunk-item';
 
-        const info = document.createElement('div');
+        const info   = document.createElement('div');
         info.className = 'chunk-info';
 
         const nameEl = document.createElement('div');
-        nameEl.className = 'chunk-name';
+        nameEl.className   = 'chunk-name';
         nameEl.textContent = name;
 
         const sizeEl = document.createElement('div');
-        sizeEl.className = 'chunk-size';
+        sizeEl.className   = 'chunk-size';
         sizeEl.textContent = formatBytes(blob.size);
 
         info.appendChild(nameEl);
         info.appendChild(sizeEl);
 
         const btn = document.createElement('button');
-        btn.className = 'btn-dl-chunk';
+        btn.className   = 'btn-dl-chunk';
         btn.textContent = '⬇ Download';
-        btn.onclick = () => downloadBlob(blob, name);
+        btn.onclick     = () => downloadBlob(blob, name);
 
         item.appendChild(info);
         item.appendChild(btn);
@@ -610,7 +569,7 @@ function renderChunks(chunkMB) {
     });
 
     chunksSection.style.display = 'block';
-    dlAllBtn.style.display = 'inline-flex';
+    dlAllBtn.style.display      = 'inline-flex';
 }
 
 // ─── Download helpers ─────────────────────────────────────────────────────────
@@ -641,24 +600,14 @@ function getVideoDuration(file) {
     });
 }
 
-function readFileAsUint8Array(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload  = e => resolve(new Uint8Array(e.target.result));
-        reader.onerror = reject;
-        reader.readAsArrayBuffer(file);
-    });
-}
-
 function getExtension(filename) {
     return filename.includes('.') ? filename.split('.').pop().toLowerCase() : 'mp4';
 }
 
 function formatBytes(bytes) {
     if (bytes === 0) return '0 B';
-    const k     = 1000;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i     = Math.floor(Math.log(bytes) / Math.log(k));
+    const k = 1000, sizes = ['B','KB','MB','GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
     return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
 }
 
@@ -667,7 +616,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function showToast(message) {
     const toast = document.getElementById('toast');
     toast.textContent = message;
-    toast.className = 'show';
+    toast.className   = 'show';
     setTimeout(() => { toast.className = toast.className.replace('show', ''); }, 3000);
 }
 </script>
