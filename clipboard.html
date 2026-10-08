@@ -113,12 +113,14 @@
             top: 20px;
             right: 30px;
             color: #fff;
-            font-size: 40px;
+            font-size: 1rem;
             font-weight: bold;
             cursor: pointer;
             z-index: 10000;
             line-height: 1;
+            text-transform: uppercase;
         }
+        #close-btn:hover { color: #ef4444; }
 
         /* Controls */
         .controls {
@@ -199,7 +201,7 @@
 <body>
 
     <div id="fullscreen-overlay" onclick="closeFullscreen()">
-        <span id="close-btn">&times;</span>
+        <span id="close-btn" onclick="closeFullscreen()">Close</span>
         <img id="fullscreen-image" src="" alt="Fullscreen View">
     </div>
 
@@ -217,20 +219,20 @@
 
         <div class="controls" id="controls" style="display: none;">
             <button class="btn-remove" onclick="removeImage()" title="Remove Image">
-                x
+                Remove
             </button>
 
             <button class="btn-fullscreen" onclick="openFullscreen()">
-                ⛶ Fullscreen
+                Fullscreen
             </button>
             
             <button class="btn-copy-img" onclick="copyImageToClipboard()">
-                ⧉ Copy Image
+                Copy Image
             </button>
 
             <button class="btn-upload" id="upload-btn" onclick="uploadToImgBB()">
                 <div class="loader" id="loader"></div>
-                <span id="upload-text">⎘ Copy Link (Upload)</span>
+                <span id="upload-text">Copy Link (Upload)</span>
             </button>
         </div>
     </div>
@@ -292,7 +294,7 @@
         function resetUploadButton() {
             uploadedUrl = null;
             copyPending = false;
-            uploadText.textContent = "⎘ Copy Link (Upload)";
+            uploadText.textContent = "Copy Link (Upload)";
             uploadBtn.className = "btn-upload"; 
             loader.style.display = "none";
         }
@@ -420,7 +422,7 @@
                     
                     // Success State
                     uploadBtn.className = "btn-upload-success"; 
-                    uploadText.textContent = "✔ Link Created! (Copy)";
+                    uploadText.textContent = "Link Created! (Copy)";
                     loader.style.display = "none";
                     
                     // --- SMART COPY LOGIC ---
@@ -432,7 +434,7 @@
                         copyPending = true;
                         console.log("Upload done in background. Waiting for focus to copy...");
                         // Also show a browser notification if we could (optional, not implemented here to keep it simple)
-                        document.title = "✔ Upload Complete!"; // Change tab title
+                        document.title = "Upload Complete!"; // Change tab title
                     }
                     
                 } else {

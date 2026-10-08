@@ -250,15 +250,16 @@
 
         #player-close {
             position: absolute;
-            top: 18px;
+            top: 22px;
             right: 28px;
             color: #fff;
-            font-size: 38px;
+            font-size: 1rem;
             font-weight: bold;
             cursor: pointer;
             line-height: 1;
             z-index: 10000;
             user-select: none;
+            text-transform: uppercase;
         }
         #player-close:hover { color: #ef4444; }
 
@@ -363,7 +364,7 @@
 
     <!-- Drop zone -->
     <div id="drop-area" class="placeholder" onclick="document.getElementById('file-input').click()">
-        <h2>🎬 Drag, Drop or Click</h2>
+        <h2>Drag, Drop or Click</h2>
         <p>Select a video file to split into playable pieces</p>
     </div>
 
@@ -381,8 +382,8 @@
     <div class="settings-row" id="settings-row">
         <!-- Mode toggle -->
         <div class="mode-toggle">
-            <button class="mode-btn active" id="btn-mode-size"   onclick="setMode('size')">📦 Size</button>
-            <button class="mode-btn"        id="btn-mode-time"   onclick="setMode('time')">⏱ Duration</button>
+            <button class="mode-btn active" id="btn-mode-size"   onclick="setMode('size')">Size</button>
+            <button class="mode-btn"        id="btn-mode-time"   onclick="setMode('time')">Duration</button>
         </div>
 
         <!-- Size panel -->
@@ -406,13 +407,13 @@
 
     <!-- Action buttons -->
     <div class="controls" id="controls" style="display:none;">
-        <button class="btn-remove" onclick="removeFile()" title="Remove file">✕</button>
+        <button class="btn-remove" onclick="removeFile()" title="Remove file">Remove</button>
         <button class="btn-split" id="split-btn" onclick="splitVideo()">
             <div class="loader" id="loader"></div>
-            <span id="split-text">✂ Split Video</span>
+            <span id="split-text">Split Video</span>
         </button>
         <button class="btn-download-all" id="dl-all-btn" style="display:none;" onclick="downloadAll()">
-            ⬇ Download All
+            Download All
         </button>
     </div>
 
@@ -433,7 +434,7 @@
 
 <!-- Video player popup -->
 <div id="player-overlay" onclick="closePlayer(event)">
-    <span id="player-close" onclick="closePlayer()">&times;</span>
+    <span id="player-close" onclick="closePlayer()">Close</span>
     <div id="player-title"></div>
     <video id="player-video" controls autoplay></video>
 </div>
@@ -471,7 +472,7 @@ const dlAllBtn      = document.getElementById('dl-all-btn');
 
 // ─── FFmpeg init ──────────────────────────────────────────────────────────────
 async function initFFmpeg() {
-    setFFmpegStatus('loading', '⏳ Loading FFmpeg engine (first time ~10s)…');
+    setFFmpegStatus('loading', 'Loading FFmpeg engine (first time ~10s)…');
     progressWrap.style.display = 'block';
     progressBar.style.width    = '0%';
     progressLbl.textContent    = 'Downloading FFmpeg core…';
@@ -496,14 +497,14 @@ async function initFFmpeg() {
         await ff.load();
 
         progressBar.style.width = '100%';
-        progressLbl.textContent = '✔ FFmpeg ready';
+        progressLbl.textContent = 'FFmpeg ready';
         ffmpegReady = true;
-        setFFmpegStatus('ready', '✔ FFmpeg engine loaded — ready to split');
+        setFFmpegStatus('ready', 'FFmpeg engine loaded — ready to split');
         setTimeout(() => { progressWrap.style.display = 'none'; }, 1500);
 
     } catch (err) {
         console.error(err);
-        setFFmpegStatus('error', '✖ Failed to load FFmpeg: ' + err.message);
+        setFFmpegStatus('error', 'Failed to load FFmpeg: ' + err.message);
         progressWrap.style.display = 'none';
     }
 }
@@ -534,7 +535,7 @@ fileInput.addEventListener('change', e => {
 // ─── File handling ────────────────────────────────────────────────────────────
 function handleFile(file) {
     if (!file || !file.type.startsWith('video/')) {
-        showToast('⚠ Please select a valid video file.');
+        showToast('Error: Please select a valid video file.');
         return;
     }
     currentFile = file;
@@ -543,7 +544,7 @@ function handleFile(file) {
     chunksList.innerHTML        = '';
     chunksSection.style.display = 'none';
     dlAllBtn.style.display      = 'none';
-    splitText.textContent       = '✂ Split Video';
+    splitText.textContent       = 'Split Video';
     loaderEl.style.display      = 'none';
     splitBtn.disabled           = false;
 
@@ -587,7 +588,7 @@ function setMode(mode) {
 // ─── Splitting ────────────────────────────────────────────────────────────────
 async function splitVideo() {
     if (!currentFile) return;
-    if (!ffmpegReady) { showToast('⏳ FFmpeg is still loading, please wait…'); return; }
+    if (!ffmpegReady) { showToast('Please wait: FFmpeg is still loading...'); return; }
 
     // ── Resolve timePerChunk based on selected mode ───────────────────────────
     let timePerChunk; // seconds
@@ -597,7 +598,7 @@ async function splitVideo() {
         const mins = parseInt(document.getElementById('chunk-min-input').value) || 0;
         const secs = parseInt(document.getElementById('chunk-sec-input').value)  || 0;
         timePerChunk = mins * 60 + secs;
-        if (timePerChunk <= 0) { showToast('⚠ Please enter a duration greater than 0.'); return; }
+        if (timePerChunk <= 0) { showToast('Error: Please enter a duration greater than 0.'); return; }
         chunkLabel = `${mins}m ${secs}s`;
     } else {
         const chunkMB    = parseFloat(document.getElementById('chunk-size-input').value) || 25;
@@ -606,8 +607,8 @@ async function splitVideo() {
         // Get duration via HTML5 video element (needed only for size mode)
         let duration;
         try { duration = await getVideoDuration(currentFile); }
-        catch { showToast('⚠ Could not read video metadata.'); return; }
-        if (!isFinite(duration) || duration <= 0) { showToast('⚠ Could not determine video duration.'); return; }
+        catch { showToast('Error: Could not read video metadata.'); return; }
+        if (!isFinite(duration) || duration <= 0) { showToast('Error: Could not determine video duration.'); return; }
 
         // Target 82% → keyframe-boundary overshoot stays under the limit
         const targetBytes = chunkBytes * 0.82;
@@ -671,22 +672,22 @@ async function splitVideo() {
         }
 
         progressBar.style.width = '100%';
-        progressLbl.textContent = `✔ Done — ${chunkBlobs.length} chunk${chunkBlobs.length !== 1 ? 's' : ''} ready`;
+        progressLbl.textContent = `Done - ${chunkBlobs.length} chunk${chunkBlobs.length !== 1 ? 's' : ''} ready`;
 
         loaderEl.style.display = 'none';
-        splitText.textContent  = '✂ Split Again';
+        splitText.textContent  = 'Split Again';
         splitBtn.disabled      = false;
 
         renderChunks(chunkLabel);
-        showToast(`✔ Split into ${chunkBlobs.length} piece${chunkBlobs.length !== 1 ? 's' : ''}`);
+        showToast(`Success: Split into ${chunkBlobs.length} piece${chunkBlobs.length !== 1 ? 's' : ''}`);
 
     } catch (err) {
         console.error(err);
         loaderEl.style.display  = 'none';
-        splitText.textContent   = '✂ Split Video';
+        splitText.textContent   = 'Split Video';
         splitBtn.disabled       = false;
-        progressLbl.textContent = '✖ Error: ' + err.message;
-        showToast('✖ Split failed — see console for details.');
+        progressLbl.textContent = 'Error: ' + err.message;
+        showToast('Error: Split failed - see console for details.');
     }
 }
 
@@ -719,12 +720,12 @@ function renderChunks(chunkLabel) {
 
         const playBtn = document.createElement('button');
         playBtn.className   = 'btn-play-chunk';
-        playBtn.textContent = '▶ Play';
+        playBtn.textContent = 'Play';
         playBtn.onclick     = () => openPlayer(blob, name);
 
         const dlBtn = document.createElement('button');
         dlBtn.className   = 'btn-dl-chunk';
-        dlBtn.textContent = '⬇ Download';
+        dlBtn.textContent = 'Download';
         dlBtn.onclick     = () => downloadBlob(blob, name);
 
         actions.appendChild(playBtn);
@@ -749,7 +750,7 @@ function downloadBlob(blob, name) {
 
 async function downloadAll() {
     if (!chunkBlobs.length) return;
-    showToast(`⬇ Starting ${chunkBlobs.length} downloads…`);
+    showToast(`Starting ${chunkBlobs.length} downloads...`);
     for (let i = 0; i < chunkBlobs.length; i++) {
         downloadBlob(chunkBlobs[i].blob, chunkBlobs[i].name);
         if (i < chunkBlobs.length - 1) await sleep(500);

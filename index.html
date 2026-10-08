@@ -1,2 +1,106 @@
-<a href="/clipboard.html">clipboard</a>
-<a href="/video.html">video splitter</a>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RunTools</title>
+    <style>
+        /* Modern Dark Theme Styling — matches other pages */
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .container {
+            text-align: center;
+            max-width: 800px;
+            width: 100%;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            /* Nice gradient text for the logo */
+            background: linear-gradient(to right, #60a5fa, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p.subtitle {
+            color: #888;
+            margin-bottom: 40px;
+            font-size: 1.1rem;
+        }
+
+        .tools-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            width: 100%;
+        }
+
+        .tool-card {
+            background-color: rgba(255,255,255,0.02);
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 40px 20px;
+            text-decoration: none;
+            color: #fff;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .tool-card:hover {
+            border-color: #2563eb;
+            background-color: rgba(37, 99, 235, 0.05);
+            transform: translateY(-4px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+        }
+
+        .tool-title {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin: 0 0 10px 0;
+            color: #60a5fa;
+        }
+
+        .tool-desc {
+            color: #aaa;
+            font-size: 0.95rem;
+            margin: 0;
+            line-height: 1.5;
+            max-width: 80%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>RunTools</h1>
+        <p class="subtitle">Select a tool to get started</p>
+        
+        <div class="tools-grid">
+            <a href="clipboard.html" class="tool-card">
+                <div class="tool-title">RunClipboard</div>
+                <p class="tool-desc">Upload, preview, share, and copy images directly from your clipboard.</p>
+            </a>
+
+            <a href="video.html" class="tool-card">
+                <div class="tool-title">RunVideoSplit</div>
+                <p class="tool-desc">Split large video files into smaller playable chunks locally without servers.</p>
+            </a>
+        </div>
+    </div>
+</body>
+</html>
